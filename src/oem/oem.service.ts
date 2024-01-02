@@ -209,13 +209,15 @@ export class OemService {
 
     const tokenAccount = await getAssociatedTokenAddress(
       pub,
-      new PublicKey('6Vt52q418Q63KD1Uk1bgRjwdaoJMUsRLNqpMiYu4N1s9'),
+      new PublicKey('6Vt52q418Q63KD1Uk1bgRjwdaoJMUsRLNqpMiYu4N1s9'), // creater is the owner of the token account
     );
 
     let balance = await connection.getTokenAccountBalance(tokenAccount);
     let balanceValue = 0;
-    if (!balance.value.uiAmount) balanceValue = 0;
-    else balanceValue = balance.value.uiAmount;
+    // if (!balance.value.uiAmount) balanceValue = 0;
+    // else balanceValue = balance.value.uiAmount;
+
+    if (balance.value.uiAmount) balanceValue = balance.value.uiAmount;
 
     const result = {
       name: asset.metadata.name,
