@@ -1,7 +1,5 @@
 lucid_backend.aisplit.com {
-  # node-app:3000 is the docker container running the Node.js application
-  # in our case it's exposed on port 3000
-  reverse_proxy node-app:3000  {
-    header_down Strict-Transport-Security max-age=31536000;
-   }
+ reverse_proxy 3000 {
+   header_down Strict-Transport-Security max-age=31536000;
+ }
 }

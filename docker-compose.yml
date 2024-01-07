@@ -1,27 +1,29 @@
 version: '2.17.2'
 services:
-  node-app:
-    container_name: node-app
-    restart: unless-stopped
-    environment: 
-      - RPC_ENDPOINT = ${RPC_ENDPOINT} 
-      - NODE_ENV = production
-    build:
-      context: ./
-
   caddy:
     image: caddy/caddy:2.2.1-alpine
     container_name: caddy-service
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:            
+      - '80:80'
+      - '443:443'
+    volumes:
       - $PWD/Caddyfile:/etc/caddy/Caddyfile
       - $PWD/site:/srv
       - caddy_data:/data
       - caddy_config:/config
 
+  node-app:
+    container_name: node-app
+    restart: unless-stopped
+    environment:
+      - RPC_ENDPOINT=${RPC_ENDPOINT}
+      - NODE_ENV=production
+    build:
+      context: ./
+    ports:
+      - '3000:3000'
+
 volumes:
   caddy_data:
-  caddy_config:  
+  caddy_config:
