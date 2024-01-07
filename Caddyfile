@@ -1,4 +1,4 @@
-lucid_backend.aisplit.com {
+aisplit.com {
   reverse_proxy node-app:4000  {
     header_down Strict-Transport-Security max-age=31536000;
    }
