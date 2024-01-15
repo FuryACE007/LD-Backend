@@ -91,7 +91,7 @@ export class OemService {
     const newUmi = this.generateUmi(signer); // generating a new Umi instance with the OEM's signer
     const wallets = [];
     const consumableWallets = numOfWallets;
-    const batchSize = 7;
+    const batchSize = 5;
 
     for (
       let batchIndex = 0;
