@@ -20,12 +20,14 @@ import { generateMnemonic, mnemonicToSeed } from 'bip39';
 import { Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
 import { transferSol } from '@metaplex-foundation/mpl-toolbox';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class OemService {
   private readonly umi: Umi;
 
-  constructor() {
+  constructor(private httpService: HttpService) {
     this.umi = createUmi(process.env.RPC_ENDPOINT);
     this.umi.use(mplTokenMetadata());
     this.umi.use(
@@ -216,16 +218,25 @@ export class OemService {
     let balanceValue = 0;
     // if (!balance.value.uiAmount) balanceValue = 0;
     // else balanceValue = balance.value.uiAmount;
-
+    // ** Add fetch json from metadata uri
     if (balance.value.uiAmount) balanceValue = balance.value.uiAmount;
 
-    const result = {
-      name: asset.metadata.name,
-      symbol: asset.metadata.symbol,
-      metadataUri: asset.metadata.uri,
-      balance: balanceValue,
-    };
+    try {
+      const metadataResponse = await firstValueFrom(
+        this.httpService.get(asset.metadata.uri),
+      );
+      const metadata = metadataResponse.data;
 
-    return JSON.parse(JSON.stringify(result));
+      const result = {
+        name: asset.metadata.name,
+        symbol: asset.metadata.symbol,
+        metadata,
+        balance: balanceValue,
+      };
+
+      return JSON.parse(JSON.stringify(result));
+    } catch (error) {
+      throw new Error(error);
+    }
   }
 }
