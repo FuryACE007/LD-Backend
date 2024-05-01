@@ -24,7 +24,7 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 
 @Injectable()
-export class OemService {
+export class InventoryService {
   private readonly umi: Umi;
 
   constructor(private httpService: HttpService) {
@@ -56,7 +56,7 @@ export class OemService {
 
   // ----------------------------------------------------------------
 
-  async createOemWallet(): Promise<JSON> {
+  async createInventoryWallet(): Promise<JSON> {
     // Generating mnemonic for the wallet
     const mnemonic = generateMnemonic();
 
@@ -178,7 +178,7 @@ export class OemService {
   /*------------------------------------------------------------------------------------------------------*/
 
   /* ============================Login using mnemoics and store signer on the local storage=============================== */
-  async loginOem(mnemonic: string): Promise<KeypairSigner> {
+  async loginInventory(mnemonic: string): Promise<KeypairSigner> {
     // Create seed phrase from mnemonic
     const seed = await mnemonicToSeed(mnemonic);
     const seed32 = new Uint8Array(seed.toJSON().data.slice(0, 32));
