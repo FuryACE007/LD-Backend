@@ -1,9 +1,11 @@
 import { Controller, Get, Post, Body, Param } from '@nestjs/common';
 import { InventoryService } from './inventory.service';
 import { KeypairSigner, PublicKey } from '@metaplex-foundation/umi';
+import { ApiResponse, ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CreateWalletsDto } from './dto/create-wallets.dto';
 import { LoginInventoryDto } from './dto/login-inventory.dto';
 
+@ApiTags('inventory')
 @Controller('inventory')
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
@@ -11,6 +13,8 @@ export class InventoryController {
   /*------------------ Get the wallet balance------------------------*/
 
   @Get('wallet-balance/:pubkey')
+  @ApiOperation({ summary: 'Get wallet balance' })
+  @ApiResponse({ status: 200, description: 'The wallet balance.' })
   async getWalletBalance(@Param('pubkey') pubkey: string): Promise<Number> {
     return this.inventoryService.getWalletBalance(pubkey);
   }
@@ -18,6 +22,8 @@ export class InventoryController {
   /* ----------------- Get the data of tokens in the wallet --------------- */
 
   @Get('token-data/:walletAddress')
+  @ApiOperation({ summary: 'Get token data' })
+  @ApiResponse({ status: 200, description: 'The token data.' })
   async getTokenData(
     @Param('walletAddress') walletAddress: string,
   ): Promise<JSON> {
@@ -25,7 +31,11 @@ export class InventoryController {
   }
 
   /*---------- Used to create a wallet and generate a new instance of OEM with the given signer-------- */
+  @ApiOperation({ summary: 'Create inventory wallet' })
+  @ApiResponse({ status: 200, description: 'The created inventory wallet.' })
   @Post('create-inventory')
+  @ApiOperation({ summary: 'Create inventory wallet' })
+  @ApiResponse({ status: 200, description: 'The created inventory wallet.' })
   async createInventoryWallet(): Promise<JSON> {
     // returns a promise
     return this.inventoryService.createInventoryWallet(); // returns a promise containing {mnemonic, keypair}
@@ -34,6 +44,8 @@ export class InventoryController {
   /*------------Create and fund the consumable wallets-----------------------------------------*/
 
   @Post('create-consumable-wallets')
+  @ApiOperation({ summary: 'Create consumable wallets' })
+  @ApiResponse({ status: 200, description: 'The created consumable wallets.' })
   createConsumableWallet(@Body() createWalletsDto: CreateWalletsDto) {
     return this.inventoryService.createConsumableWallet(
       createWalletsDto.numberOfWallets,
@@ -47,6 +59,8 @@ export class InventoryController {
   /* ============================Login using mnemoics and store signer on the local storage=============================== */
 
   @Post('login-inventory')
+  @ApiOperation({ summary: 'Login to inventory' })
+  @ApiResponse({ status: 200, description: 'The login result.' })
   async loginInventory(
     @Body() loginInventoryDto: LoginInventoryDto,
   ): Promise<KeypairSigner> {
