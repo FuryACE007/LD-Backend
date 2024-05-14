@@ -18,10 +18,15 @@ import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
 import { generateMnemonic, mnemonicToSeed } from 'bip39';
 import { Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
-import { transferSol } from '@metaplex-foundation/mpl-toolbox';
+import {
+  createTokenIfMissing,
+  findAssociatedTokenPda,
+  transferSol,
+  transferTokens,
+} from '@metaplex-foundation/mpl-toolbox';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { HttpService } from '@nestjs/axios';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, min } from 'rxjs';
 
 @Injectable()
 export class InventoryService {
@@ -52,6 +57,18 @@ export class InventoryService {
   calculateMintPriceInLamports(amount: number) {
     const lamports = amount * 0.0000001 * LAMPORTS_PER_SOL; // 0.0000001 SOLs per token
     return Math.ceil(lamports);
+  }
+
+  async loadWallet(mnemonic: string): Promise<KeypairSigner> {
+    // Create seed phrase from mnemonic
+    const seed = await mnemonicToSeed(mnemonic);
+    const seed32 = new Uint8Array(seed.toJSON().data.slice(0, 32));
+
+    //Generate Keypair from the seed
+    const keypair = this.umi.eddsa.createKeypairFromSeed(seed32);
+    const signer = createSignerFromKeypair(this.umi, keypair);
+
+    return signer;
   }
 
   // ----------------------------------------------------------------
@@ -241,7 +258,52 @@ export class InventoryService {
   }
 
   /**-------------------------------Send Tokens------------------------------------------- */
-  async sendTokens(amount: number) {
-    
+  async sendTokens(
+    amount: number,
+    tokenMint: PublicKey,
+    destinationWalletAddress: PublicKey,
+    mnemonic: string,
+  ) {
+    const signer = await this.loadWallet(mnemonic);
+    const umiInstance = this.generateUmi(signer);
+
+    const ownerWallet = umiInstance.payer.publicKey;
+    const destinationWallet = publicKey(destinationWalletAddress);
+
+    const mint = publicKey(tokenMint);
+
+    const ownerPda = findAssociatedTokenPda(umiInstance, {
+      // Gets the ATA of the sender account
+      mint: mint,
+      owner: ownerWallet,
+    });
+    const destinationPda = findAssociatedTokenPda(umiInstance, {
+      // Predicts the ATA of the recepient acc which doesn't exist yet
+      mint: mint,
+      owner: destinationWallet,
+    });
+
+    let txnBuilder = transactionBuilder();
+
+    txnBuilder = txnBuilder.add(
+      createTokenIfMissing(umiInstance, {
+        // creates the recipient ATA
+        mint: mint,
+        owner: destinationWallet,
+      }),
+    );
+
+    txnBuilder = txnBuilder.append(
+      transferTokens(umiInstance, {
+        source: ownerPda,
+        destination: destinationPda,
+        amount: amount,
+      }),
+    );
+    txnBuilder
+      .sendAndConfirm(umiInstance, { send: { skipPreflight: true } })
+      .then(() => {
+        console.log('Token sent');
+      });
   }
 }
