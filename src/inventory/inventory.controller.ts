@@ -70,7 +70,26 @@ export class InventoryController {
 
   //------------------------------Send Tokens----------------------------------------
   @Post('send-tokens')
+  @ApiOperation({
+    summary: 'Send tokens to a specified destination',
+    description:
+      'Sends a specified amount of tokens to a destination wallet address.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'The operation was successful.',
+    type: String, // Adjust the type according to the actual return type of your method
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request.',
+  })
   async sendTokens(@Body() sendTokensDto: SendTokensDto) {
-    return this.inventoryService.sendTokens(sendTokensDto.amount);
+    return this.inventoryService.sendTokens(
+      sendTokensDto.amount,
+      sendTokensDto.tokenMint,
+      sendTokensDto.destinationWalletAddress,
+      sendTokensDto.mnemonic,
+    );
   }
 }

@@ -260,8 +260,8 @@ export class InventoryService {
   /**-------------------------------Send Tokens------------------------------------------- */
   async sendTokens(
     amount: number,
-    tokenMint: PublicKey,
-    destinationWalletAddress: PublicKey,
+    tokenMint: string,
+    destinationWalletAddress: string,
     mnemonic: string,
   ) {
     const signer = await this.loadWallet(mnemonic);
