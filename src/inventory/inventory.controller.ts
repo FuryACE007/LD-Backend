@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Param } from '@nestjs/common';
 import { InventoryService } from './inventory.service';
 import { KeypairSigner, PublicKey } from '@metaplex-foundation/umi';
-import { ApiResponse, ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ApiResponse, ApiTags, ApiOperation, ApiBody } from '@nestjs/swagger';
 import { CreateWalletsDto } from './dto/create-wallets.dto';
 import { LoginInventoryDto } from './dto/login-inventory.dto';
 import { SendTokensDto } from './dto/send-tokens.dto';
@@ -14,26 +14,27 @@ export class InventoryController {
   /*------------------ Get the wallet balance------------------------*/
 
   @Get('wallet-balance/:pubkey')
-  @ApiOperation({ summary: 'Get wallet balance' })
-  @ApiResponse({ status: 200, description: 'The wallet balance.' })
-  async getWalletBalance(@Param('pubkey') pubkey: string): Promise<Number> {
+  @ApiOperation({ summary: 'Retrieve the balance of a wallet' })
+  @ApiResponse({
+    status: 200,
+    description: 'The balance of the wallet in SOL.',
+  })
+  async getWalletBalance(@Param('pubkey') pubkey: string): Promise<number> {
     return this.inventoryService.getWalletBalance(pubkey);
   }
 
   /* ----------------- Get the data of tokens in the wallet --------------- */
 
   @Get('token-data/:walletAddress')
-  @ApiOperation({ summary: 'Get token data' })
-  @ApiResponse({ status: 200, description: 'The token data.' })
+  @ApiOperation({ summary: 'Retrieve token data for a wallet' })
+  @ApiResponse({ status: 200, description: 'The token data for the wallet.' })
   async getTokenData(
     @Param('walletAddress') walletAddress: string,
-  ): Promise<JSON> {
+  ): Promise<any> {
     return this.inventoryService.getTokenData(walletAddress);
   }
 
   /*---------- Used to create a wallet and generate a new instance of OEM with the given signer-------- */
-  @ApiOperation({ summary: 'Create inventory wallet' })
-  @ApiResponse({ status: 200, description: 'The created inventory wallet.' })
   @Post('create-inventory')
   @ApiOperation({ summary: 'Create inventory wallet' })
   @ApiResponse({ status: 200, description: 'The created inventory wallet.' })
@@ -47,6 +48,10 @@ export class InventoryController {
   @Post('create-consumable-wallets')
   @ApiOperation({ summary: 'Create consumable wallets' })
   @ApiResponse({ status: 200, description: 'The created consumable wallets.' })
+  @ApiBody({
+    description: 'Data required to create consumable wallets.',
+    type: CreateWalletsDto,
+  })
   createConsumableWallet(@Body() createWalletsDto: CreateWalletsDto) {
     return this.inventoryService.createConsumableWallet(
       createWalletsDto.numberOfWallets,
@@ -62,6 +67,10 @@ export class InventoryController {
   @Post('login-inventory')
   @ApiOperation({ summary: 'Login to inventory' })
   @ApiResponse({ status: 200, description: 'The login result.' })
+  @ApiBody({
+    description: 'Data required to login to inventory.',
+    type: LoginInventoryDto,
+  })
   async loginInventory(
     @Body() loginInventoryDto: LoginInventoryDto,
   ): Promise<KeypairSigner> {
@@ -83,6 +92,10 @@ export class InventoryController {
   @ApiResponse({
     status: 400,
     description: 'Bad Request.',
+  })
+  @ApiBody({
+    description: 'The data required to send tokens.',
+    type: SendTokensDto,
   })
   async sendTokens(@Body() sendTokensDto: SendTokensDto) {
     return this.inventoryService.sendTokens(

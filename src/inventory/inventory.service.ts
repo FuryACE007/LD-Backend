@@ -208,7 +208,7 @@ export class InventoryService {
   }
 
   /* ================================ Get wallet balance========================================= */
-  async getWalletBalance(pubkey: string): Promise<Number> {
+  async getWalletBalance(pubkey: string): Promise<number> {
     const balance = await this.umi.rpc.getBalance(publicKey(pubkey));
     const balanceSol = Number(balance.basisPoints) / LAMPORTS_PER_SOL;
 
