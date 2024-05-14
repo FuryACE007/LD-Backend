@@ -4,6 +4,7 @@ import { KeypairSigner, PublicKey } from '@metaplex-foundation/umi';
 import { ApiResponse, ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CreateWalletsDto } from './dto/create-wallets.dto';
 import { LoginInventoryDto } from './dto/login-inventory.dto';
+import { SendTokensDto } from './dto/send-tokens.dto';
 
 @ApiTags('inventory')
 @Controller('inventory')
@@ -65,5 +66,11 @@ export class InventoryController {
     @Body() loginInventoryDto: LoginInventoryDto,
   ): Promise<KeypairSigner> {
     return this.inventoryService.loginInventory(loginInventoryDto.mnemonic);
+  }
+
+  //------------------------------Send Tokens----------------------------------------
+  @Post('send-tokens')
+  async sendTokens(@Body() sendTokensDto: SendTokensDto) {
+    return this.inventoryService.sendTokens(sendTokensDto.amount);
   }
 }

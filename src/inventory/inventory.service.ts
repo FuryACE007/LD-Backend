@@ -239,4 +239,9 @@ export class InventoryService {
       throw new Error(error);
     }
   }
+
+  /**-------------------------------Send Tokens------------------------------------------- */
+  async sendTokens(amount: number) {
+    
+  }
 }
