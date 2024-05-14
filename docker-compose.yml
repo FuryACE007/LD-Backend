@@ -14,7 +14,7 @@ services:
       - caddy_config:/config
 
   node-app:
-    container_name: node-app
+    container_name: lucid-backend-service
     restart: unless-stopped
     environment:
       - RPC_ENDPOINT=${RPC_ENDPOINT}
@@ -22,7 +22,7 @@ services:
     build:
       context: ./
     ports:
-      - '4000:4000'
+      - '3000:3000'
 
 volumes:
   caddy_data:
