@@ -8,44 +8,33 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10 # Overall job timeout
 
     steps:
       - uses: actions/checkout@v2
 
-      - name: Setup SSH
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.HOST_SSH_KEY }}
-          SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
+      - name: Setup SSH with ssh-agent
         run: |
-          mkdir -p ~/.ssh
-          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
+          eval "$(ssh-agent -s)"
+          echo "${{ secrets.HOST_SSH_KEY }}" > id_rsa
+          chmod 600 id_rsa
+          ssh-add id_rsa
           ssh-keyscan -H ${{ secrets.HOST_IP }} >> ~/.ssh/known_hosts
-
-      - name: Install sshpass
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y sshpass
+        env:
+          SSH_AUTH_SOCK: $SSH_AUTH_SOCK
 
       - name: Update deploy.sh on Droplet
+        run: |
+          ssh -o StrictHostKeyChecking=no $HOST_USER@$HOST_IP "echo '#!/bin/bash\n\necho \"Exit immediately if a command exits with a non-zero status.\"\nset -e\n\ngit pull https://$GITHUB_ACCESS_TOKEN@github.com/LD-Smart-Supply/smart-supply-system-backendV1.git\ndocker compose down\ndocker compose up -d --build' > /var/www/smart-supply-backendV1/deploy.sh"
         env:
           HOST_IP: ${{ secrets.HOST_IP }}
           HOST_USER: ${{ secrets.HOST_USER }}
-          SSH_PRIVATE_KEY: ${{ secrets.HOST_SSH_KEY }}
-          SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
           GITHUB_ACCESS_TOKEN: ${{ secrets.PAT }}
-        run: |
-          chmod 600 ~/.ssh/id_rsa
-          sshpass -vvv -p "$SSH_PASSPHRASE" ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $HOST_USER@$HOST_IP
 
       - name: Execute Updated deploy.sh
+        run: |
+          ssh -o StrictHostKeyChecking=no $HOST_USER@$HOST_IP "chmod +x /var/www/smart-supply-backendV1/deploy.sh &&./var/www/smart-supply-backendV1/deploy.sh"
         env:
           HOST_IP: ${{ secrets.HOST_IP }}
           HOST_USER: ${{ secrets.HOST_USER }}
-          SSH_PRIVATE_KEY: ${{ secrets.HOST_SSH_KEY }}
-          SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
           GITHUB_ACCESS_TOKEN: ${{ secrets.PAT }}
-        run: |
-          chmod 600 ~/.ssh/id_rsa
-          sshpass -vvv -p "$SSH_PASSPHRASE" ssh -o StrictHostKeyChecking=no -v -i ~/.ssh/id_rsa $HOST_USER@$HOST_IP "/var/www/smart-supply-backendV1/deploy.sh"
