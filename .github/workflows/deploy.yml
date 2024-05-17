@@ -27,7 +27,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y sshpass
 
-      - name: Deploy to Droplet
+      - name: Update deploy.sh on Droplet
         env:
           HOST_IP: ${{ secrets.HOST_IP }}
           HOST_USER: ${{ secrets.HOST_USER }}
@@ -36,4 +36,15 @@ jobs:
           GITHUB_ACCESS_TOKEN: ${{ secrets.PAT }}
         run: |
           chmod 600 ~/.ssh/id_rsa
-          sshpass -p "$SSH_PASSPHRASE" ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $HOST_USER@$HOST_IP "chmod +x /var/www/smart-supply-system-backendV1/deploy.sh && /var/www/smart-supply-system-backendV1/deploy.sh"
+          sshpass -p "$SSH_PASSPHRASE" ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $HOST_USER@$HOST_IP "echo '#!/bin/bash\n\necho \"Exit immediately if a command exits with a non-zero status.\"\nset -e\n\ngit pull https://$GITHUB_ACCESS_TOKEN@github.com/LD-Smart-Supply/smart-supply-system-backendV1.git\ndocker compose down\ndocker compose up -d --build' > /var/www/smart-supply-backendV1/deploy.sh"
+
+      - name: Execute Updated deploy.sh
+        env:
+          HOST_IP: ${{ secrets.HOST_IP }}
+          HOST_USER: ${{ secrets.HOST_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.HOST_SSH_KEY }}
+          SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
+          GITHUB_ACCESS_TOKEN: ${{ secrets.PAT }}
+        run: |
+          chmod 600 ~/.ssh/id_rsa
+          sshpass -p "$SSH_PASSPHRASE" ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $HOST_USER@$HOST_IP "/var/www/smart-supply-backendV1/deploy.sh"
