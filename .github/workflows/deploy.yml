@@ -12,13 +12,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
         with:
-          fetch-depth: 0 # Fetch all history for all tags and branches
+          fetch-depth: 0
+
+      - name: Set SSH Key Permissions
+        run: chmod 600 ~/.ssh/id_ed25519
+
+      - name: Load SSH Key into SSH Agent
+        run: eval "$(ssh-agent -s)" && ssh-add - <<< "${{ secrets.HOST_SSH_KEY }}"
 
       - name: SSH into Digital Ocean Droplet
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.HOST_IP }}
-          key: ${{ secrets.HOST_SSH_KEY }} # Use the private SSH key for the root user
+          key: ${{ secrets.HOST_SSH_KEY }}
           script: |
             cd /var/www/smart-supply-system-backendV1
             chmod +x deploy.sh
