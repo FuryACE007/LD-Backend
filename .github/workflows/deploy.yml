@@ -15,7 +15,10 @@ jobs:
           fetch-depth: 0
 
       - name: Set SSH Key Permissions
-        run: chmod 600 ~/.ssh/id_ed25519
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HOST_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
 
       - name: Load SSH Key into SSH Agent
         run: eval "$(ssh-agent -s)" && ssh-add - <<< "${{ secrets.HOST_SSH_KEY }}"
