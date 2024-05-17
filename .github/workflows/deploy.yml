@@ -22,9 +22,17 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ secrets.HOST_IP }} >> ~/.ssh/known_hosts
 
+      - name: Install sshpass
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
       - name: Deploy to Droplet
         env:
           HOST_IP: ${{ secrets.HOST_IP }}
           HOST_USER: ${{ secrets.HOST_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.HOST_SSH_KEY }}
+          SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
         run: |
-          ssh-agent sh -c 'ssh-add ~/.ssh/id_rsa; ssh -o StrictHostKeyChecking=no $HOST_USER@$HOST_IP "chmod +x /var/www/smart-supply-system-backendV1/deploy.sh && /var/www/smart-supply-system-backendV1/deploy.sh"'
+          chmod 600 ~/.ssh/id_rsa
+          sshpass -p "$SSH_PASSPHRASE" ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $HOST_USER@$HOST_IP "chmod +x /var/www/smart-supply-system-backendV1/deploy.sh && /var/www/smart-supply-system-backendV1/deploy.sh"
