@@ -33,7 +33,7 @@ jobs:
           HOST_USER: ${{ secrets.HOST_USER }}
           SSH_PRIVATE_KEY: ${{ secrets.HOST_SSH_KEY }}
           SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
+          GITHUB_ACCESS_TOKEN: ${{ secrets.PAT }}
         run: |
           chmod 600 ~/.ssh/id_rsa
-          echo "Building and Deploying the container"
           sshpass -p "$SSH_PASSPHRASE" ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $HOST_USER@$HOST_IP "chmod +x /var/www/smart-supply-system-backendV1/deploy.sh && /var/www/smart-supply-system-backendV1/deploy.sh"
