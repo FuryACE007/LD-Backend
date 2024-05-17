@@ -27,7 +27,7 @@ jobs:
 
       - name: Update deploy.sh on Droplet
         run: |
-          ssh -o StrictHostKeyChecking=no $HOST_USER@$HOST_IP "echo '#!/bin/bash\n\necho \"Exit immediately if a command exits with a non-zero status.\"\nset -e\n\ngit pull https://$GITHUB_ACCESS_TOKEN@github.com/LD-Smart-Supply/smart-supply-system-backendV1.git\ndocker compose down\ndocker compose up -d --build' > /var/www/smart-supply-backendV1/deploy.sh"
+          ssh -vvv -o StrictHostKeyChecking=no $HOST_USER@$HOST_IP "echo '#!/bin/bash\n\necho \"Exit immediately if a command exits with a non-zero status.\"\nset -e\n\ngit pull https://$GITHUB_ACCESS_TOKEN@github.com/LD-Smart-Supply/smart-supply-system-backendV1.git\ndocker compose down\ndocker compose up -d --build' > /var/www/smart-supply-backendV1/deploy.sh"
         env:
           HOST_IP: ${{ secrets.HOST_IP }}
           HOST_USER: ${{ secrets.HOST_USER }}
@@ -35,7 +35,7 @@ jobs:
 
       - name: Execute Updated deploy.sh
         run: |
-          ssh -o StrictHostKeyChecking=no $HOST_USER@$HOST_IP "chmod +x /var/www/smart-supply-backendV1/deploy.sh &&./var/www/smart-supply-backendV1/deploy.sh"
+          ssh -vvv -o StrictHostKeyChecking=no $HOST_USER@$HOST_IP "chmod +x /var/www/smart-supply-backendV1/deploy.sh &&./var/www/smart-supply-backendV1/deploy.sh"
         env:
           HOST_IP: ${{ secrets.HOST_IP }}
           HOST_USER: ${{ secrets.HOST_USER }}
