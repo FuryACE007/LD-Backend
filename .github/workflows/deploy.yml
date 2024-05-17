@@ -36,7 +36,7 @@ jobs:
           GITHUB_ACCESS_TOKEN: ${{ secrets.PAT }}
         run: |
           chmod 600 ~/.ssh/id_rsa
-          sshpass -p "$SSH_PASSPHRASE" ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $HOST_USER@$HOST_IP
+          sshpass -vvv -p "$SSH_PASSPHRASE" ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $HOST_USER@$HOST_IP
 
       - name: Execute Updated deploy.sh
         env:
