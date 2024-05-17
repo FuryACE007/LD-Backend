@@ -3,7 +3,7 @@ name: Deploy to DigitalOcean
 on:
   push:
     branches:
-      - main # Change this to your branch name if different
+      - main
 
 jobs:
   deploy:
@@ -21,7 +21,6 @@ jobs:
 
       - name: Deploy application
         env:
-          PAT: ${{ secrets.PAT }}
           HOST_IP: ${{ secrets.HOST_IP }}
         run: |
-          ssh -o StrictHostKeyChecking=no root@$HOST_IP 'cd /var/www/smart-supply-system-backendV1 && bash deploy.sh $PAT'
+          ssh -o StrictHostKeyChecking=no root@$HOST_IP 'cd /var/www/smart-supply-system-backendV1 && bash deploy.sh'

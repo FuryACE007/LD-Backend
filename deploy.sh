@@ -4,8 +4,7 @@
 set -e
 
 # Pull the latest changes
-PAT=$1
-git pull https://$PAT@github.com/LD-Smart-Supply/smart-supply-system-backendV1.git
+git pull origin main
 
 # Stop the existing containers
 docker compose down
