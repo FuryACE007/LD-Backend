@@ -1,37 +1,27 @@
-name: Deploy to DigitalOcean Droplet
+name: Deploy to DigitalOcean
 
 on:
   push:
     branches:
-      - main
+      - main # Change this to your branch name if different
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
 
-      - name: Set SSH Key Permissions
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.5.4
+        with:
+          ssh-private-key: ${{ secrets.HOST_SSH_KEY }}
+
+      - name: Deploy application
+        env:
+          PAT: ${{ secrets.PAT }}
+          HOST_IP: ${{ secrets.HOST_IP }}
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.HOST_SSH_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-
-      - name: Load SSH Key into SSH Agent
-        run: eval "$(ssh-agent -s)" && ssh-add - <<< "${{ secrets.HOST_SSH_KEY }}"
-
-      - name: SSH into Digital Ocean Droplet
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.HOST_IP }}
-          key: ${{ secrets.HOST_SSH_KEY }}
-          script: |
-            cd /var/www/smart-supply-system-backendV1
-            chmod +x deploy.sh
-            ./deploy.sh $PAT
-
-      - name: Timeout after 15 minutes
-        run: echo "This job will timeout after 15 minutes"
+          ssh -o StrictHostKeyChecking=no root@$HOST_IP 'cd /var/www/smart-supply-backendV1 && bash deploy.sh $PAT'
