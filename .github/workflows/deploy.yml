@@ -3,40 +3,26 @@ name: Deploy to DigitalOcean Droplet
 on:
   push:
     branches:
-      - main # Replace with your desired branch
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10 # Overall job timeout
-
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Fetch all history for all tags and branches
 
-      - name: Setup SSH with ssh-agent
-        run: |
-          eval "$(ssh-agent -s)"
-          mkdir -p ~/.ssh
-          touch ~/.ssh/known_hosts
-          echo "${{ secrets.HOST_SSH_KEY }}" > id_ed25519
-          chmod 600 id_ed25519
-          ssh-add id_ed25519
-          ssh-keyscan -H ${{ secrets.HOST_IP }} >> ~/.ssh/known_hosts
-        env:
-          SSH_AUTH_SOCK: $SSH_AUTH_SOCK
+      - name: SSH into Digital Ocean Droplet
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST_IP }}
+          key: ${{ secrets.HOST_SSH_KEY }} # Use the private SSH key for the root user
+          script: |
+            cd /var/www/smart-supply-system-backendV1
+            chmod +x deploy.sh
+            ./deploy.sh $PAT
 
-      - name: Update deploy.sh on Droplet
-        run: |
-          ssh -vvv -o StrictHostKeyChecking=no $HOST_USER@$HOST_IP "echo '#!/bin/bash\n\necho \"Exit immediately if a command exits with a non-zero status.\"\nset -e\n\ngit pull https://$GITHUB_ACCESS_TOKEN@github.com/LD-Smart-Supply/smart-supply-system-backendV1.git\ndocker compose down\ndocker compose up -d --build' > /var/www/smart-supply-backendV1/deploy.sh"
-        env:
-          HOST_IP: ${{ secrets.HOST_IP }}
-          HOST_USER: ${{ secrets.HOST_USER }}
-          GITHUB_ACCESS_TOKEN: ${{ secrets.PAT }}
-
-      - name: Execute Updated deploy.sh
-        run: |
-          ssh -vvv -o StrictHostKeyChecking=no $HOST_USER@$HOST_IP "chmod +x /var/www/smart-supply-backendV1/deploy.sh &&./var/www/smart-supply-backendV1/deploy.sh"
-        env:
-          HOST_IP: ${{ secrets.HOST_IP }}
-          HOST_USER: ${{ secrets.HOST_USER }}
-          GITHUB_ACCESS_TOKEN: ${{ secrets.PAT }}
+      - name: Timeout after 15 minutes
+        run: echo "This job will timeout after 15 minutes"
