@@ -1,7 +1,10 @@
 #!/bin/bash
 
-echo "Pulling"
+# Pull the latest changes
 git pull
 
-echo "Building application"
+# Stop the existing containers
+docker compose down
+
+# Build and start the containers
 docker compose up -d --build
