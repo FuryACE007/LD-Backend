@@ -36,7 +36,7 @@ jobs:
           GITHUB_ACCESS_TOKEN: ${{ secrets.PAT }}
         run: |
           chmod 600 ~/.ssh/id_rsa
-          sshpass -vvv -p "$SSH_PASSPHRASE" ssh -o StrictHostKeyChecking=no -v -i ~/.ssh/id_rsa $HOST_USER@$HOST_IP "echo '#!/bin/bash\n\necho \"Exit immediately if a command exits with a non-zero status.\"\nset -e\n\ngit pull https://$GITHUB_ACCESS_TOKEN@github.com/LD-Smart-Supply/smart-supply-system-backendV1.git\ndocker compose down\ndocker compose up -d --build' > /var/www/smart-supply-backendV1/deploy.sh"
+          sshpass -p "$SSH_PASSPHRASE" ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $HOST_USER@$HOST_IP
 
       - name: Execute Updated deploy.sh
         env:
