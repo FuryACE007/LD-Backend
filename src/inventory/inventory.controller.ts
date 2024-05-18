@@ -1,7 +1,13 @@
 import { Controller, Get, Post, Body, Param } from '@nestjs/common';
 import { InventoryService } from './inventory.service';
 import { KeypairSigner, PublicKey } from '@metaplex-foundation/umi';
-import { ApiResponse, ApiTags, ApiOperation, ApiBody } from '@nestjs/swagger';
+import {
+  ApiResponse,
+  ApiTags,
+  ApiOperation,
+  ApiBody,
+  ApiParam,
+} from '@nestjs/swagger';
 import { CreateWalletsDto } from './dto/create-wallets.dto';
 import { LoginInventoryDto } from './dto/login-inventory.dto';
 import { SendTokensDto } from './dto/send-tokens.dto';
@@ -27,6 +33,10 @@ export class InventoryController {
 
   @Get('token-data/:walletAddress')
   @ApiOperation({ summary: 'Retrieve token data for a wallet' })
+  @ApiParam({
+    name: 'walletAddress',
+    description: 'The wallet address to retrieve token data for.',
+  })
   @ApiResponse({ status: 200, description: 'The token data for the wallet.' })
   async getTokenData(
     @Param('walletAddress') walletAddress: string,
