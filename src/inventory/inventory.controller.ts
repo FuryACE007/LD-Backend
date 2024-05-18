@@ -95,7 +95,7 @@ export class InventoryController {
       'Sends a specified amount of tokens to a destination wallet address.',
   })
   @ApiResponse({
-    status: 200,
+    status: 201,
     description: 'The operation was successful.',
     type: String, // Adjust the type according to the actual return type of your method
   })
@@ -111,8 +111,8 @@ export class InventoryController {
     return this.inventoryService.sendTokens(
       sendTokensDto.amount,
       sendTokensDto.tokenMint,
+      sendTokensDto.ownerWalletAddress,
       sendTokensDto.destinationWalletAddress,
-      sendTokensDto.mnemonic,
     );
   }
 }
