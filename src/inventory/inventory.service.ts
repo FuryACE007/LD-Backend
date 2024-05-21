@@ -222,7 +222,7 @@ export class InventoryService {
    * @param mnemonic - The mnemonic used to generate the seed phrase.
    * @returns A Promise that resolves to a KeypairSigner object.
    */
-  async loginInventory(mnemonic: string): Promise<KeypairSigner> {
+  async loginInventory(mnemonic: string): Promise<string> {
     // Create seed phrase from mnemonic
     const seed = await mnemonicToSeed(mnemonic);
     const seed32 = new Uint8Array(seed.toJSON().data.slice(0, 32));
@@ -231,7 +231,7 @@ export class InventoryService {
     const keypair = this.umi.eddsa.createKeypairFromSeed(seed32);
     const signer = createSignerFromKeypair(this.umi, keypair);
 
-    return signer; // This signer can then be stored on local storage and then sent along with every request
+    return JSON.stringify({ publicKey: signer.publicKey.toString() });
   }
 
   /* ================================ Get wallet balance========================================= */

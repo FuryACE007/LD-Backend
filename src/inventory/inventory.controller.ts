@@ -76,14 +76,14 @@ export class InventoryController {
 
   @Post('login-inventory')
   @ApiOperation({ summary: 'Login to inventory' })
-  @ApiResponse({ status: 200, description: 'The login result.' })
+  @ApiResponse({ status: 200, description: 'The publickey of the wallet.' })
   @ApiBody({
     description: 'Data required to login to inventory.',
     type: LoginInventoryDto,
   })
   async loginInventory(
     @Body() loginInventoryDto: LoginInventoryDto,
-  ): Promise<KeypairSigner> {
+  ): Promise<string> {
     return this.inventoryService.loginInventory(loginInventoryDto.mnemonic);
   }
 
