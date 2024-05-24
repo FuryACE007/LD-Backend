@@ -4,6 +4,7 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
  const app = await NestFactory.create(AppModule);
+ app.enableCors(); // This enables CORS for all origins
 
  const config = new DocumentBuilder()
     .setTitle('Lucid Backend API')
