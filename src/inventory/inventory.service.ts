@@ -305,16 +305,17 @@ export class InventoryService {
    * Sends tokens from one wallet to another.
    * @param amount - The amount of tokens to send.
    * @param tokenMint - The token mint address.
+   * @param mnemonics - The mnemonic for the owner's wallet.
    * @param ownerWalletAddress - The address of the owner's wallet.
    * @param destinationWalletAddress - The address of the destination wallet.
    */
   async sendTokens(
     amount: number,
     tokenMint: string,
+    mnemonics: string,
     ownerWalletAddress: string,
     destinationWalletAddress: string,
   ) {
-    const mnemonics = process.env.PAYER_MNEMONIC;
     const signer = await this.loadWallet(mnemonics);
     const umiInstance = this.generateUmi(signer);
 

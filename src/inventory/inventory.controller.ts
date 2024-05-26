@@ -111,6 +111,7 @@ export class InventoryController {
     return this.inventoryService.sendTokens(
       sendTokensDto.amount,
       sendTokensDto.tokenMint,
+      sendTokensDto.mnemonics,
       sendTokensDto.ownerWalletAddress,
       sendTokensDto.destinationWalletAddress,
     );
