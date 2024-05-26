@@ -12,4 +12,7 @@ export class SendTokensDto {
 
   @ApiProperty({ description: 'The destination wallet address.' })
   destinationWalletAddress: string;
+
+  @ApiProperty({ description: 'The mnemonics for the owner wallet.' })
+  mnemonics: string;
 }
