@@ -316,8 +316,10 @@ export class InventoryService {
     ownerWalletAddress: string,
     destinationWalletAddress: string,
   ) {
-    const signer = await this.loadWallet(mnemonics);
-    const umiInstance = this.generateUmi(signer);
+    const signer = await this.loadWallet(mnemonics); // the owner's wallet signer
+    const feePayer = await this.loadWallet(process.env.PAYER_MNEMONIC); // Lucid signer sponsoring the transaction fees
+
+    const umiInstance = this.generateUmi(feePayer);
 
     const ownerWallet = publicKey(ownerWalletAddress);
     const destinationWallet = publicKey(destinationWalletAddress);
@@ -349,6 +351,7 @@ export class InventoryService {
       transferTokens(umiInstance, {
         source: ownerPda,
         destination: destinationPda,
+        authority: signer,
         amount: amount,
       }),
     );
