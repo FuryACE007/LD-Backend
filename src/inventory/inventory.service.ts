@@ -231,7 +231,7 @@ export class InventoryService {
     const keypair = this.umi.eddsa.createKeypairFromSeed(seed32);
     const signer = createSignerFromKeypair(this.umi, keypair);
 
-    return JSON.stringify({ signer: signer.toString() });
+    return JSON.stringify({ publicKey: signer.publicKey, mnemonic });
   }
 
   /* ================================ Get wallet balance========================================= */
