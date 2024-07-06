@@ -29,6 +29,7 @@ import {
   findAssociatedTokenPda,
   transferSol,
   transferTokens,
+  closeToken,
 } from '@metaplex-foundation/mpl-toolbox';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { HttpService } from '@nestjs/axios';
@@ -360,5 +361,25 @@ export class InventoryService {
       .then(() => {
         console.log('Token sent');
       });
+  }
+
+  /*---------------------------------Close Token Account----------------------------------- */
+  async closeTokenAccount(walletAddress: string, tokenMint: string) {
+    const signer = await this.loadWallet(process.env.PAYER_MNEMONIC); // Lucid signer sponsoring the transaction fees
+    const umiInstance = this.generateUmi(signer);
+
+    const wallet = publicKey(walletAddress);
+    const mint = publicKey(tokenMint);
+
+    const tokenPda = await findAssociatedTokenPda(umiInstance, {
+      mint: mint,
+      owner: wallet,
+    });
+
+    closeToken(umiInstance, {
+      account: tokenPda,
+      destination: umiInstance.payer.publicKey,
+      owner: signer,
+    });
   }
 }
