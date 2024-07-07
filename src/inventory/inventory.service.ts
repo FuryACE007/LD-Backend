@@ -380,6 +380,6 @@ export class InventoryService {
       account: tokenPda,
       destination: umiInstance.payer.publicKey,
       owner: signer,
-    });
+    }).sendAndConfirm(umiInstance);
   }
 }
