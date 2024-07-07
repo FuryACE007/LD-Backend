@@ -11,6 +11,7 @@ import {
 import { CreateWalletsDto } from './dto/create-wallets.dto';
 import { LoginInventoryDto } from './dto/login-inventory.dto';
 import { SendTokensDto } from './dto/send-tokens.dto';
+import { CloseTokenAccountDto } from './entities/close-token-account.dto';
 
 @ApiTags('inventory')
 @Controller('inventory')
@@ -114,6 +115,32 @@ export class InventoryController {
       sendTokensDto.mnemonics,
       sendTokensDto.ownerWalletAddress,
       sendTokensDto.destinationWalletAddress,
+    );
+  }
+
+  /*-----------------Close Token Account---------------------------------*/
+  @Post('close-token')
+  @ApiOperation({
+    summary: 'Close token account',
+    description: 'Close a token account with 0 token balance.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'The operation was successful.',
+    type: String, // Adjust the type according to the actual return type of your method
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request.',
+  })
+  @ApiBody({
+    description: 'The data required to close a token account.',
+    type: CloseTokenAccountDto,
+  })
+  async closeTokenAccount(@Body() closeTokenAccountDto: CloseTokenAccountDto) {
+    return this.inventoryService.closeTokenAccount(
+      closeTokenAccountDto.walletAddress,
+      closeTokenAccountDto.tokenMint,
     );
   }
 }
