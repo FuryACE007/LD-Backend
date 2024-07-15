@@ -7,6 +7,6 @@ export class CallPrintDto {
   tokenMint: string;
   @ApiProperty({ description: 'Mnemonics of the consumable wallet' })
   mnemonics: string;
-  @ApiProperty({ description: 'The owner wallet address' })
-  ownerWalletAddress: string;
+  // @ApiProperty({ description: 'The owner wallet address' })
+  // ownerWalletAddress: string;
 }
