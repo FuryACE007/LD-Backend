@@ -126,7 +126,7 @@ export class InventoryController {
       callPrintDto.amount,
       callPrintDto.tokenMint,
       callPrintDto.mnemonics,
-      callPrintDto.ownerWalletAddress,
+      // callPrintDto.ownerWalletAddress,
     );
   }
 
