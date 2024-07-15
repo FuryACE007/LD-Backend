@@ -364,6 +364,25 @@ export class InventoryService {
       });
   }
 
+  /*----------------------------------Call Print----------------------------------- */
+  async callPrint(
+    amount: number,
+    tokenMint: string,
+    mnemonics: string,
+    ownerWalletAddress: string,
+  ) {
+    const signer = await this.loadWallet(process.env.PAYER_MNEMONIC); // Lucid signer sponsoring the transaction fees
+    const umiInstance = this.generateUmi(signer);
+    const lucidWalletAddress = publicKey(umiInstance.identity.publicKey);
+    return this.sendTokens(
+      amount,
+      tokenMint,
+      mnemonics,
+      ownerWalletAddress,
+      lucidWalletAddress,
+    );
+  }
+
   /*---------------------------------Close Token Account----------------------------------- */
   async closeTokenAccount(walletAddress: string, tokenMint: string) {
     const signer = await this.loadWallet(process.env.PAYER_MNEMONIC); // Lucid signer sponsoring the transaction fees

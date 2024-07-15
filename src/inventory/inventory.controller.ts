@@ -12,6 +12,7 @@ import { CreateWalletsDto } from './dto/create-wallets.dto';
 import { LoginInventoryDto } from './dto/login-inventory.dto';
 import { SendTokensDto } from './dto/send-tokens.dto';
 import { CloseTokenAccountDto } from './entities/close-token-account.dto';
+import { CallPrintDto } from './dto/call-print.dto';
 
 @ApiTags('inventory')
 @Controller('inventory')
@@ -115,6 +116,17 @@ export class InventoryController {
       sendTokensDto.mnemonics,
       sendTokensDto.ownerWalletAddress,
       sendTokensDto.destinationWalletAddress,
+    );
+  }
+
+  /*-----------------Call Print---------------------------------*/
+  @Post('call-print')
+  async callPrint(@Body() callPrintDto: CallPrintDto) {
+    return this.inventoryService.callPrint(
+      callPrintDto.amount,
+      callPrintDto.tokenMint,
+      callPrintDto.mnemonics,
+      callPrintDto.ownerWalletAddress,
     );
   }
 
