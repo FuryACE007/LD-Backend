@@ -314,7 +314,6 @@ export class InventoryService {
     amount: number,
     tokenMint: string,
     mnemonics: string,
-    ownerWalletAddress: string,
     destinationWalletAddress: string,
   ) {
     const signer = await this.loadWallet(mnemonics); // the owner's wallet signer
@@ -322,7 +321,7 @@ export class InventoryService {
 
     const umiInstance = this.generateUmi(feePayer);
 
-    const ownerWallet = publicKey(ownerWalletAddress);
+    const ownerWallet = publicKey(signer.publicKey);
     const destinationWallet = publicKey(destinationWalletAddress);
 
     const mint = publicKey(tokenMint);
@@ -364,21 +363,26 @@ export class InventoryService {
   }
 
   /*----------------------------------Call Print----------------------------------- */
+  /**
+   * Calls the print function to mint tokens.
+   * @param amount - The amount of tokens to mint.
+   * @param tokenMint - The token mint address.
+   * @param mnemonics - The mnemonic for the consumable wallet.
+   */
   async callPrint(
     amount: number,
     tokenMint: string,
     mnemonics: string,
-    ownerWalletAddress: string,
   ) {
     const signer = await this.loadWallet(process.env.PAYER_MNEMONIC); // Lucid signer sponsoring the transaction fees
-    const umiInstance = this.generateUmi(signer);
-    const lucidWalletAddress = publicKey(umiInstance.identity.publicKey);
+    const lucidWalletAddress = publicKey(signer.publicKey);
+    const ownerWallet = await this.loadWallet(mnemonics);
+
     return this.sendTokens(
       amount,
       tokenMint,
       mnemonics,
-      ownerWalletAddress,
-      lucidWalletAddress,
+      lucidWalletAddress, // destination wallet address
     );
   }
 
