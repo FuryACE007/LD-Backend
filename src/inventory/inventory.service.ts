@@ -314,7 +314,6 @@ export class InventoryService {
     amount: number,
     tokenMint: string,
     mnemonics: string,
-    ownerWalletAddress: string,
     destinationWalletAddress: string,
   ) {
     const signer = await this.loadWallet(mnemonics); // the owner's wallet signer
@@ -383,7 +382,6 @@ export class InventoryService {
       amount,
       tokenMint,
       mnemonics,
-      publicKey(ownerWallet.publicKey),
       lucidWalletAddress, // destination wallet address
     );
   }

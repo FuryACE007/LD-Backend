@@ -114,7 +114,6 @@ export class InventoryController {
       sendTokensDto.amount,
       sendTokensDto.tokenMint,
       sendTokensDto.mnemonics,
-      sendTokensDto.ownerWalletAddress,
       sendTokensDto.destinationWalletAddress,
     );
   }
@@ -126,7 +125,6 @@ export class InventoryController {
       callPrintDto.amount,
       callPrintDto.tokenMint,
       callPrintDto.mnemonics,
-      // callPrintDto.ownerWalletAddress,
     );
   }
 
