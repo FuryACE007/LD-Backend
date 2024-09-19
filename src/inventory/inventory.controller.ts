@@ -1,6 +1,5 @@
 import { Controller, Get, Post, Body, Param } from '@nestjs/common';
 import { InventoryService } from './inventory.service';
-import { KeypairSigner, PublicKey } from '@metaplex-foundation/umi';
 import {
   ApiResponse,
   ApiTags,

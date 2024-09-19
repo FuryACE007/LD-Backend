@@ -33,7 +33,7 @@ import {
 } from '@metaplex-foundation/mpl-toolbox';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { HttpService } from '@nestjs/axios';
-import { firstValueFrom, min } from 'rxjs';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class InventoryService {
@@ -271,28 +271,31 @@ export class InventoryService {
         new PublicKey(walletAddress), // creater is the owner of the token account
       );
 
-      let balance = await connection.getTokenAccountBalance(tokenAccount);
+      const balance = await connection.getTokenAccountBalance(tokenAccount);
       let balanceValue = 0;
       if (balance.value.uiAmount) balanceValue = balance.value.uiAmount;
 
+      let metadata = null;
       try {
         const metadataResponse = await firstValueFrom(
           this.httpService.get(asset.metadata.uri),
         );
-        const metadata = metadataResponse.data;
-
-        const result = {
-          name: asset.metadata.name,
-          symbol: asset.metadata.symbol,
-          metadata,
-          balance: balanceValue,
-          mintAddress: asset.mint.publicKey,
-        };
-
-        return result;
+        metadata = metadataResponse.data;
       } catch (error) {
-        throw new Error(error);
+        console.error(
+          `Failed to fetch metadata for URI ${asset.metadata.uri}: ${error}`,
+        );
       }
+
+      const result = {
+        name: asset.metadata.name,
+        symbol: asset.metadata.symbol,
+        metadata, // This will be null if the fetch fails
+        balance: balanceValue,
+        mintAddress: asset.mint.publicKey,
+      };
+
+      return result;
     });
 
     const tokenData = await Promise.all(tokenDataPromises); // Wait for all promises to resolve
@@ -369,14 +372,10 @@ export class InventoryService {
    * @param tokenMint - The token mint address.
    * @param mnemonics - The mnemonic for the consumable wallet.
    */
-  async callPrint(
-    amount: number,
-    tokenMint: string,
-    mnemonics: string,
-  ) {
+  async callPrint(amount: number, tokenMint: string, mnemonics: string) {
     const signer = await this.loadWallet(process.env.PAYER_MNEMONIC); // Lucid signer sponsoring the transaction fees
     const lucidWalletAddress = publicKey(signer.publicKey);
-    const ownerWallet = await this.loadWallet(mnemonics);
+    // const ownerWallet = await this.loadWallet(mnemonics);
 
     return this.sendTokens(
       amount,
