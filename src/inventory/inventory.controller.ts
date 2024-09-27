@@ -12,6 +12,7 @@ import { LoginInventoryDto } from './dto/login-inventory.dto';
 import { SendTokensDto } from './dto/send-tokens.dto';
 import { CloseTokenAccountDto } from './entities/close-token-account.dto';
 import { CallPrintDto } from './dto/call-print.dto';
+import { UploadMetadataDto } from './dto/upload-token-metadata.dto';
 
 @ApiTags('inventory')
 @Controller('inventory')
@@ -150,6 +151,18 @@ export class InventoryController {
     return this.inventoryService.closeTokenAccount(
       closeTokenAccountDto.walletAddress,
       closeTokenAccountDto.tokenMint,
+    );
+  }
+
+  @Post('upload-metadata')
+  @ApiOperation({ summary: 'Upload metadata to Arweave' })
+  @ApiResponse({ status: 200, description: 'Metadata uploaded successfully.' })
+  @ApiResponse({ status: 400, description: 'Bad Request.' })
+  @ApiBody({ type: UploadMetadataDto })
+  async uploadMetadata(@Body() uploadMetadataDto: UploadMetadataDto) {
+    return this.inventoryService.uploadMetadata(
+      uploadMetadataDto.mnemonic,
+      uploadMetadataDto.metadata,
     );
   }
 }

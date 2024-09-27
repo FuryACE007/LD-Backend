@@ -34,6 +34,7 @@ import {
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { getIrysUploader } from 'src/utils/irysUploader.util';
 
 @Injectable()
 export class InventoryService {
@@ -57,14 +58,16 @@ export class InventoryService {
    * @returns The generated Umi instance.
    */
   generateUmi(signer: KeypairSigner): Umi {
-    return createUmi(process.env.RPC_ENDPOINT)
-      .use(mplTokenMetadata())
-      .use(
-        irysUploader({
-          address: 'https://devnet.irys.xyz',
-        }),
-      )
-      .use(signerIdentity(signer));
+    return (
+      createUmi(process.env.RPC_ENDPOINT)
+        .use(mplTokenMetadata())
+        // .use(
+        //   irysUploader({
+        //     address: 'https://devnet.irys.xyz',
+        //   }),
+        // )
+        .use(signerIdentity(signer))
+    );
   }
 
   /**
@@ -403,5 +406,22 @@ export class InventoryService {
       destination: umiInstance.payer.publicKey,
       owner: signer,
     }).sendAndConfirm(umiInstance);
+  }
+
+  /*--------------------------------Umi Uplloader Arweave----------------------------------- */
+  async uploadMetadata(mnemonic: string, metadata: JSON) {
+    const signer = await this.loadWallet(mnemonic); // Lucid signer sponsoring the transaction fees
+    const umiInstance = this.generateUmi(signer);
+    const uploader = await getIrysUploader(mnemonic, umiInstance);
+
+    try {
+      const uploadReceipt = await uploader.upload(JSON.stringify(metadata));
+      const uri = 'https://gateway.irys.xyz/' + uploadReceipt.id;
+      console.log('TokenMetadata uploaded successfully', uri);
+      return uri;
+    } catch (error) {
+      console.error('Failed to upload metadata to Arweave:', error);
+      return;
+    }
   }
 }

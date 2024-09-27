@@ -20,6 +20,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@irys/upload": "^0.0.7",
+    "@irys/upload-solana": "^0.0.8",
     "@metaplex-foundation/mpl-token-metadata": "^3.1.2",
     "@metaplex-foundation/mpl-toolbox": "^0.9.1",
     "@metaplex-foundation/umi": "^0.8.10",
