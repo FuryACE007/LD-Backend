@@ -414,7 +414,18 @@ export class InventoryService {
     try {
       const uploadReceipt = await uploader.upload(JSON.stringify(metadata));
       const uri = 'https://gateway.irys.xyz/' + uploadReceipt.id;
-      console.log('TokenMetadata uploaded successfully', uri);
+      // console.log('TokenMetadata uploaded successfully', uri);
+      // try {
+      // let metaData = null;
+      //   const metadataResponse = await firstValueFrom(
+      //     this.httpService.get(uri),
+      //   );
+      //   metaData = metadataResponse.data;
+
+      //   console.log('Metadata fetched successfully', metaData);
+      // } catch (error) {
+      //   console.error(`Failed to fetch metadata for URI ${uri}: ${error}`);
+      // }
       return uri;
     } catch (error) {
       console.error('Failed to upload metadata to Arweave:', error);
