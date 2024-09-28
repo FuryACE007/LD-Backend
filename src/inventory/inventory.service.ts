@@ -7,6 +7,7 @@
 import { Injectable } from '@nestjs/common';
 import {
   TokenStandard,
+  burnV1,
   fetchAllDigitalAssetByOwner,
   mintV1,
   mplTokenMetadata,
@@ -21,7 +22,7 @@ import {
   transactionBuilder,
 } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
-import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
+// import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
 import { generateMnemonic, mnemonicToSeed } from 'bip39';
 import { Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
 import {
@@ -34,6 +35,8 @@ import {
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { getIrysUploader } from 'src/utils/irysUploader.util';
+import { mnemonicToWallet } from 'src/utils/mnemonic-to-wallet.util';
 
 @Injectable()
 export class InventoryService {
@@ -42,11 +45,11 @@ export class InventoryService {
   constructor(private httpService: HttpService) {
     this.umi = createUmi(process.env.RPC_ENDPOINT);
     this.umi.use(mplTokenMetadata());
-    this.umi.use(
-      irysUploader({
-        address: 'https://devnet.irys.xyz',
-      }),
-    );
+    // this.umi.use(
+    //   irysUploader({
+    //     address: 'https://devnet.irys.xyz',
+    //   }),
+    // );
   }
 
   /*--------------------- HELPER FUNCTIONS------------------------------------ */
@@ -56,15 +59,11 @@ export class InventoryService {
    * @param signer - The KeypairSigner to be used for signing transactions.
    * @returns The generated Umi instance.
    */
-  generateUmi(signer: KeypairSigner): Umi {
-    return createUmi(process.env.RPC_ENDPOINT)
-      .use(mplTokenMetadata())
-      .use(
-        irysUploader({
-          address: 'https://devnet.irys.xyz',
-        }),
-      )
-      .use(signerIdentity(signer));
+  private generateUmi(signer: KeypairSigner): Umi {
+    const umi = createUmi(process.env.RPC_ENDPOINT);
+    umi.use(mplTokenMetadata());
+    umi.use(signerIdentity(signer));
+    return umi;
   }
 
   /**
@@ -403,5 +402,35 @@ export class InventoryService {
       destination: umiInstance.payer.publicKey,
       owner: signer,
     }).sendAndConfirm(umiInstance);
+  }
+
+  /*--------------------------------Umi Uplloader Arweave----------------------------------- */
+  async uploadMetadata(mnemonic: string, metadata: JSON) {
+    const signer = await (
+      await mnemonicToWallet(mnemonic, this.umi)
+    ).getSigner();
+    const umiInstance = this.generateUmi(signer);
+    const uploader = await getIrysUploader(mnemonic, umiInstance);
+
+    try {
+      const uploadReceipt = await uploader.upload(JSON.stringify(metadata));
+      const uri = 'https://gateway.irys.xyz/' + uploadReceipt.id;
+      // console.log('TokenMetadata uploaded successfully', uri);
+      // try {
+      // let metaData = null;
+      //   const metadataResponse = await firstValueFrom(
+      //     this.httpService.get(uri),
+      //   );
+      //   metaData = metadataResponse.data;
+
+      //   console.log('Metadata fetched successfully', metaData);
+      // } catch (error) {
+      //   console.error(`Failed to fetch metadata for URI ${uri}: ${error}`);
+      // }
+      return uri;
+    } catch (error) {
+      console.error('Failed to upload metadata to Arweave:', error);
+      throw new Error('Failed to upload metadata to Arweave');
+    }
   }
 }
