@@ -22,7 +22,7 @@ import {
   transactionBuilder,
 } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
-import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
+// import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
 import { generateMnemonic, mnemonicToSeed } from 'bip39';
 import { Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
 import {
@@ -34,7 +34,9 @@ import {
 } from '@metaplex-foundation/mpl-toolbox';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { HttpService } from '@nestjs/axios';
-import { firstValueFrom, min } from 'rxjs';
+import { firstValueFrom } from 'rxjs';
+import { getIrysUploader } from 'src/utils/irysUploader.util';
+import { mnemonicToWallet } from 'src/utils/mnemonic-to-wallet.util';
 
 @Injectable()
 export class InventoryService {
@@ -43,11 +45,11 @@ export class InventoryService {
   constructor(private httpService: HttpService) {
     this.umi = createUmi(process.env.RPC_ENDPOINT);
     this.umi.use(mplTokenMetadata());
-    this.umi.use(
-      irysUploader({
-        address: 'https://devnet.irys.xyz',
-      }),
-    );
+    // this.umi.use(
+    //   irysUploader({
+    //     address: 'https://devnet.irys.xyz',
+    //   }),
+    // );
   }
 
   /*--------------------- HELPER FUNCTIONS------------------------------------ */
@@ -57,15 +59,11 @@ export class InventoryService {
    * @param signer - The KeypairSigner to be used for signing transactions.
    * @returns The generated Umi instance.
    */
-  generateUmi(signer: KeypairSigner): Umi {
-    return createUmi(process.env.RPC_ENDPOINT)
-      .use(mplTokenMetadata())
-      .use(
-        irysUploader({
-          address: 'https://devnet.irys.xyz',
-        }),
-      )
-      .use(signerIdentity(signer));
+  private generateUmi(signer: KeypairSigner): Umi {
+    const umi = createUmi(process.env.RPC_ENDPOINT);
+    umi.use(mplTokenMetadata());
+    umi.use(signerIdentity(signer));
+    return umi;
   }
 
   /**
@@ -272,28 +270,31 @@ export class InventoryService {
         new PublicKey(walletAddress), // creater is the owner of the token account
       );
 
-      let balance = await connection.getTokenAccountBalance(tokenAccount);
+      const balance = await connection.getTokenAccountBalance(tokenAccount);
       let balanceValue = 0;
       if (balance.value.uiAmount) balanceValue = balance.value.uiAmount;
 
+      let metadata = null;
       try {
         const metadataResponse = await firstValueFrom(
           this.httpService.get(asset.metadata.uri),
         );
-        const metadata = metadataResponse.data;
-
-        const result = {
-          name: asset.metadata.name,
-          symbol: asset.metadata.symbol,
-          metadata,
-          balance: balanceValue,
-          mintAddress: asset.mint.publicKey,
-        };
-
-        return result;
+        metadata = metadataResponse.data;
       } catch (error) {
-        throw new Error(error);
+        console.error(
+          `Failed to fetch metadata for URI ${asset.metadata.uri}: ${error}`,
+        );
       }
+
+      const result = {
+        name: asset.metadata.name,
+        symbol: asset.metadata.symbol,
+        metadata, // This will be null if the fetch fails
+        balance: balanceValue,
+        mintAddress: asset.mint.publicKey,
+      };
+
+      return result;
     });
 
     const tokenData = await Promise.all(tokenDataPromises); // Wait for all promises to resolve
@@ -370,14 +371,10 @@ export class InventoryService {
    * @param tokenMint - The token mint address.
    * @param mnemonics - The mnemonic for the consumable wallet.
    */
-  async callPrint(
-    amount: number,
-    tokenMint: string,
-    mnemonics: string,
-  ) {
+  async callPrint(amount: number, tokenMint: string, mnemonics: string) {
     const signer = await this.loadWallet(process.env.PAYER_MNEMONIC); // Lucid signer sponsoring the transaction fees
     const lucidWalletAddress = publicKey(signer.publicKey);
-    const ownerWallet = await this.loadWallet(mnemonics);
+    // const ownerWallet = await this.loadWallet(mnemonics);
 
     return this.sendTokens(
       amount,
@@ -405,5 +402,35 @@ export class InventoryService {
       destination: umiInstance.payer.publicKey,
       owner: signer,
     }).sendAndConfirm(umiInstance);
+  }
+
+  /*--------------------------------Umi Uplloader Arweave----------------------------------- */
+  async uploadMetadata(mnemonic: string, metadata: JSON) {
+    const signer = await (
+      await mnemonicToWallet(mnemonic, this.umi)
+    ).getSigner();
+    const umiInstance = this.generateUmi(signer);
+    const uploader = await getIrysUploader(mnemonic, umiInstance);
+
+    try {
+      const uploadReceipt = await uploader.upload(JSON.stringify(metadata));
+      const uri = 'https://gateway.irys.xyz/' + uploadReceipt.id;
+      // console.log('TokenMetadata uploaded successfully', uri);
+      // try {
+      // let metaData = null;
+      //   const metadataResponse = await firstValueFrom(
+      //     this.httpService.get(uri),
+      //   );
+      //   metaData = metadataResponse.data;
+
+      //   console.log('Metadata fetched successfully', metaData);
+      // } catch (error) {
+      //   console.error(`Failed to fetch metadata for URI ${uri}: ${error}`);
+      // }
+      return uri;
+    } catch (error) {
+      console.error('Failed to upload metadata to Arweave:', error);
+      throw new Error('Failed to upload metadata to Arweave');
+    }
   }
 }
