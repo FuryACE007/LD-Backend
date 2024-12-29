@@ -13,11 +13,15 @@ import { SendTokensDto } from './dto/send-tokens.dto';
 import { CloseTokenAccountDto } from './entities/close-token-account.dto';
 import { CallPrintDto } from './dto/call-print.dto';
 import { UploadMetadataDto } from './dto/upload-token-metadata.dto';
+import { InventoryGateway } from './inventory.gateway';
 
 @ApiTags('inventory')
 @Controller('inventory')
 export class InventoryController {
-  constructor(private readonly inventoryService: InventoryService) {}
+  constructor(
+    private readonly inventoryService: InventoryService,
+    private readonly inventoryGateway: InventoryGateway,
+  ) {}
 
   /*------------------ Get the wallet balance------------------------*/
 
@@ -164,5 +168,14 @@ export class InventoryController {
       uploadMetadataDto.mnemonic,
       uploadMetadataDto.metadata,
     );
+  }
+
+  @Post('webhook')
+  @ApiOperation({ summary: 'Helius webhook endpoint' })
+  @ApiResponse({ status: 200, description: 'Webhook processed successfully.' })
+  async handleWebhook(@Body() webhookData: any) {
+    console.log('Received webhook data:', webhookData);
+    this.inventoryGateway.broadcastWebhookEvent(webhookData);
+    return { status: 'success' };
   }
 }
