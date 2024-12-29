@@ -43,7 +43,10 @@
     "bs58": "^6.0.0",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.1",
-    "swagger-ui-express": "^5.0.0"
+    "swagger-ui-express": "^5.0.0",
+    "@nestjs/websockets": "^10.0.0",
+    "@nestjs/platform-socket.io": "^10.0.0",
+    "socket.io": "^4.7.0"
   },
   "devDependencies": {
     "@nestjs/schematics": "^10.0.0",
