@@ -16,6 +16,10 @@ import { Logger } from '@nestjs/common';
   transports: ['websocket'],
   allowUpgrades: true,
   path: '/socket.io/',
+  connectTimeout: 45000,
+  maxHttpBufferSize: 1e8,
+  allowEIO3: true,
+  cleanupEmptyChildNamespaces: true,
 })
 export class InventoryGateway
   implements OnGatewayConnection, OnGatewayDisconnect
@@ -27,6 +31,10 @@ export class InventoryGateway
 
   handleConnection(client: Socket) {
     this.logger.log(`Client connected: ${client.id}`);
+    client.conn.on('heartbeat', () => {
+      this.logger.debug(`Heartbeat from client: ${client.id}`);
+    });
+
     client.on('error', (error) => {
       this.logger.error(`Socket error for client ${client.id}:`, error);
     });
@@ -34,6 +42,9 @@ export class InventoryGateway
 
   handleDisconnect(client: Socket) {
     this.logger.log(`Client disconnected: ${client.id}`);
+    client.conn.on('upgrade', () => {
+      this.logger.log(`Client ${client.id} attempting to upgrade connection`);
+    });
   }
 
   broadcastWebhookEvent(data: any) {
