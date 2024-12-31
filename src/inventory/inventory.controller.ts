@@ -13,7 +13,6 @@ import { SendTokensDto } from './dto/send-tokens.dto';
 import { CloseTokenAccountDto } from './entities/close-token-account.dto';
 import { CallPrintDto } from './dto/call-print.dto';
 import { UploadMetadataDto } from './dto/upload-token-metadata.dto';
-import { InventoryGateway } from './inventory.gateway';
 import { Logger } from '@nestjs/common';
 
 @ApiTags('inventory')
@@ -21,10 +20,7 @@ import { Logger } from '@nestjs/common';
 export class InventoryController {
   private readonly logger = new Logger(InventoryController.name);
 
-  constructor(
-    private readonly inventoryService: InventoryService,
-    private readonly inventoryGateway: InventoryGateway,
-  ) {}
+  constructor(private readonly inventoryService: InventoryService) {}
 
   /*------------------ Get the wallet balance------------------------*/
 
@@ -171,44 +167,5 @@ export class InventoryController {
       uploadMetadataDto.mnemonic,
       uploadMetadataDto.metadata,
     );
-  }
-
-  @Post('webhook')
-  @ApiOperation({ summary: 'Helius webhook endpoint' })
-  @ApiResponse({ status: 200, description: 'Webhook processed successfully.' })
-  async handleWebhook(@Body() webhookData: any) {
-    try {
-      this.logger.log(
-        'Received webhook data:',
-        JSON.stringify(webhookData, null, 2),
-      );
-      this.logger.log('Broadcasting to WebSocket clients...');
-
-      // Validate webhook data
-      if (!webhookData) {
-        throw new Error('No webhook data received');
-      }
-
-      await this.inventoryGateway.broadcastWebhookEvent(webhookData);
-      this.logger.log('Broadcast complete');
-      return { status: 'success' };
-    } catch (error) {
-      this.logger.error('Error handling webhook:', error);
-      throw error;
-    }
-  }
-
-  @Post('test-webhook')
-  @ApiOperation({ summary: 'Test webhook endpoint' })
-  async testWebhook() {
-    const testData = {
-      type: 'TEST_EVENT',
-      timestamp: Date.now(),
-      data: { message: 'Test webhook event' },
-    };
-
-    this.logger.log('Sending test webhook event');
-    await this.inventoryGateway.broadcastWebhookEvent(testData);
-    return { status: 'success', data: testData };
   }
 }
