@@ -174,8 +174,10 @@ export class InventoryController {
   @ApiOperation({ summary: 'Helius webhook endpoint' })
   @ApiResponse({ status: 200, description: 'Webhook processed successfully.' })
   async handleWebhook(@Body() webhookData: any) {
-    console.log('Received webhook data:', webhookData);
+    console.log('Received webhook data:', JSON.stringify(webhookData, null, 2));
+    console.log('Broadcasting to WebSocket clients...');
     this.inventoryGateway.broadcastWebhookEvent(webhookData);
+    console.log('Broadcast complete');
     return { status: 'success' };
   }
 }

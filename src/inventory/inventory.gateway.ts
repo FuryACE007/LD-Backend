@@ -30,6 +30,9 @@ export class InventoryGateway
 
   // Method to broadcast webhook events to all connected clients
   broadcastWebhookEvent(data: any) {
+    this.logger.log('Broadcasting webhook event to clients...');
+    this.logger.log(`Connected clients: ${this.server.engine.clientsCount}`);
     this.server.emit('webhook-event', data);
+    this.logger.log('Broadcast complete');
   }
 }
