@@ -7,7 +7,6 @@
 import { Injectable } from '@nestjs/common';
 import {
   TokenStandard,
-  burnV1,
   fetchAllDigitalAssetByOwner,
   mintV1,
   mplTokenMetadata,
