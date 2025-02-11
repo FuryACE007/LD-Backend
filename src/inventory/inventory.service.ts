@@ -371,69 +371,80 @@ export class InventoryService {
    * @param mnemonics - The mnemonic for the consumable wallet.
    */
   async callPrint(
-    printRequests: { tokenMint: string; amount: number }[],
-    mnemonics: string,
+    printRequests: { tokenMint: string; amount: number; mnemonics: string }[],
   ) {
-    const sourceSigner = await this.loadWallet(mnemonics); // Source wallet signer
-    const feePayer = await this.loadWallet(process.env.PAYER_MNEMONIC); // Lucid signer sponsoring the transaction fees
-    const lucidWalletAddress = publicKey(feePayer.publicKey);
+    const maxRetries = 3;
+    let currentTry = 0;
 
-    // Aggregate amounts for same token mints
-    const aggregatedRequests = printRequests.reduce(
-      (acc, curr) => {
-        const existingRequest = acc.find((r) => r.tokenMint === curr.tokenMint);
-        if (existingRequest) {
-          existingRequest.amount += curr.amount;
-        } else {
-          acc.push({ ...curr });
+    while (currentTry < maxRetries) {
+      try {
+        const feePayer = await this.loadWallet(process.env.PAYER_MNEMONIC);
+        const lucidWalletAddress = publicKey(feePayer.publicKey);
+
+        const umiInstance = this.generateUmi(feePayer);
+        let txBuilder = transactionBuilder();
+
+        for (const request of printRequests) {
+          const sourceSigner = await this.loadWallet(request.mnemonics);
+          const sourceWallet = publicKey(sourceSigner.publicKey);
+          const destinationWallet = publicKey(lucidWalletAddress);
+          const mint = publicKey(request.tokenMint);
+
+          const sourcePda = findAssociatedTokenPda(umiInstance, {
+            mint: mint,
+            owner: sourceWallet,
+          });
+          const destinationPda = findAssociatedTokenPda(umiInstance, {
+            mint: mint,
+            owner: destinationWallet,
+          });
+
+          txBuilder = txBuilder.add(
+            createTokenIfMissing(umiInstance, {
+              mint: mint,
+              owner: destinationWallet,
+            }),
+          );
+
+          txBuilder = txBuilder.add(
+            transferTokens(umiInstance, {
+              source: sourcePda,
+              destination: destinationPda,
+              authority: sourceSigner,
+              amount: request.amount,
+            }),
+          );
         }
-        return acc;
-      },
-      [] as { tokenMint: string; amount: number }[],
-    );
 
-    // Create a transaction builder with fee payer
-    const umiInstance = this.generateUmi(feePayer);
-    let txBuilder = transactionBuilder();
+        // Get the latest blockhash for transaction confirmation
+        const latestBlockhash = await umiInstance.rpc.getLatestBlockhash();
 
-    // Process each aggregated request
-    for (const request of aggregatedRequests) {
-      const sourceWallet = publicKey(sourceSigner.publicKey);
-      const destinationWallet = publicKey(lucidWalletAddress);
-      const mint = publicKey(request.tokenMint);
+        const result = await txBuilder.sendAndConfirm(umiInstance, {
+          send: { skipPreflight: true },
+          confirm: {
+            commitment: 'confirmed',
+            strategy: {
+              type: 'blockhash',
+              blockhash: latestBlockhash.blockhash,
+              lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+            },
+          },
+        });
 
-      const sourcePda = findAssociatedTokenPda(umiInstance, {
-        mint: mint,
-        owner: sourceWallet,
-      });
-      const destinationPda = findAssociatedTokenPda(umiInstance, {
-        mint: mint,
-        owner: destinationWallet,
-      });
-
-      // Add token account creation instruction if needed
-      txBuilder = txBuilder.add(
-        createTokenIfMissing(umiInstance, {
-          mint: mint,
-          owner: destinationWallet,
-        }),
-      );
-
-      // Add token transfer instruction with source wallet as authority
-      txBuilder = txBuilder.add(
-        transferTokens(umiInstance, {
-          source: sourcePda,
-          destination: destinationPda,
-          authority: sourceSigner,
-          amount: request.amount,
-        }),
-      );
+        return result;
+      } catch (error) {
+        currentTry++;
+        if (
+          error.message.includes('504 Gateway Timeout') &&
+          currentTry < maxRetries
+        ) {
+          // Wait for 2 seconds before retrying
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          continue;
+        }
+        throw error;
+      }
     }
-
-    // Send and confirm the batch transaction
-    return txBuilder.sendAndConfirm(umiInstance, {
-      send: { skipPreflight: true },
-    });
   }
 
   /*---------------------------------Close Token Account----------------------------------- */

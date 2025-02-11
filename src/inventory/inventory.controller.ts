@@ -156,22 +156,20 @@ export class InventoryController {
             {
               tokenMint: '2uT3YF6v5178p5mkx62ak11HHmVoxgbzrG9dfhtF879e',
               amount: 100,
+              mnemonics: 'wallet 1 mnemonic phrase here',
             },
             {
-              tokenMint: '2uT3YF6v5178p5mkx62ak11HHmVoxgbzrG9dfhtF879e',
+              tokenMint: '3fT4YF8v6189p6nly73ak22IImWpygbzrH0eghtG980f',
               amount: 50,
+              mnemonics: 'wallet 2 mnemonic phrase here',
             },
           ],
-          mnemonics: 'your wallet mnemonic phrase here',
         },
       },
     },
   })
   async callPrint(@Body() callPrintDto: CallPrintDto) {
-    return this.inventoryService.callPrint(
-      callPrintDto.printRequests,
-      callPrintDto.mnemonics,
-    );
+    return this.inventoryService.callPrint(callPrintDto.printRequests);
   }
 
   /*-----------------Close Token Account---------------------------------*/

@@ -13,27 +13,32 @@ class PrintRequestDto {
     minimum: 1,
   })
   amount: number;
+
+  @ApiProperty({
+    description:
+      'The mnemonic phrase for the wallet that will be used to sign this specific transfer.',
+    example: 'wallet specific mnemonic phrase here',
+  })
+  mnemonics: string;
 }
 
 export class CallPrintDto {
   @ApiProperty({
     description:
-      'Array of print requests to process in batch. Each request specifies a token mint and amount.',
+      'Array of print requests to process in batch. Each request specifies a token mint, amount, and wallet mnemonics.',
     type: [PrintRequestDto],
     example: [
       {
         tokenMint: '2uT3YF6v5178p5mkx62ak11HHmVoxgbzrG9dfhtF879e',
         amount: 100,
+        mnemonics: 'wallet 1 mnemonic phrase here',
       },
-      { tokenMint: '3fT4YF8v6189p6nly73ak22IImWpygbzrH0eghtG980f', amount: 50 },
+      {
+        tokenMint: '3fT4YF8v6189p6nly73ak22IImWpygbzrH0eghtG980f',
+        amount: 50,
+        mnemonics: 'wallet 2 mnemonic phrase here',
+      },
     ],
   })
   printRequests: PrintRequestDto[];
-
-  @ApiProperty({
-    description:
-      'The mnemonic phrase for the wallet that will be used to sign the transaction.',
-    example: 'your wallet mnemonic phrase here',
-  })
-  mnemonics: string;
 }
