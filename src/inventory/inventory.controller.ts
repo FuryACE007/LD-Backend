@@ -123,10 +123,53 @@ export class InventoryController {
 
   /*-----------------Call Print---------------------------------*/
   @Post('call-print')
+  @ApiOperation({
+    summary: 'Process multiple token print requests in batch',
+    description:
+      'Processes multiple token print requests in a single transaction. Automatically aggregates amounts for the same token mint to optimize transaction efficiency. Each request specifies a token mint and the amount to be printed.',
+  })
+  @ApiResponse({
+    status: 201,
+    description:
+      'The print requests were processed successfully. Returns the transaction signature.',
+    type: String,
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Bad Request - Invalid input parameters or token mint addresses.',
+  })
+  @ApiResponse({
+    status: 500,
+    description:
+      'Internal server error - Transaction failed or blockchain error.',
+  })
+  @ApiBody({
+    description:
+      'Batch of token print requests to process along with the mnemonic.',
+    type: CallPrintDto,
+    examples: {
+      batchRequest: {
+        summary: 'Example batch print request',
+        value: {
+          printRequests: [
+            {
+              tokenMint: '2uT3YF6v5178p5mkx62ak11HHmVoxgbzrG9dfhtF879e',
+              amount: 100,
+            },
+            {
+              tokenMint: '2uT3YF6v5178p5mkx62ak11HHmVoxgbzrG9dfhtF879e',
+              amount: 50,
+            },
+          ],
+          mnemonics: 'your wallet mnemonic phrase here',
+        },
+      },
+    },
+  })
   async callPrint(@Body() callPrintDto: CallPrintDto) {
     return this.inventoryService.callPrint(
-      callPrintDto.amount,
-      callPrintDto.tokenMint,
+      callPrintDto.printRequests,
       callPrintDto.mnemonics,
     );
   }

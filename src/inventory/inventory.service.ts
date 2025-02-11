@@ -370,17 +370,70 @@ export class InventoryService {
    * @param tokenMint - The token mint address.
    * @param mnemonics - The mnemonic for the consumable wallet.
    */
-  async callPrint(amount: number, tokenMint: string, mnemonics: string) {
-    const signer = await this.loadWallet(process.env.PAYER_MNEMONIC); // Lucid signer sponsoring the transaction fees
-    const lucidWalletAddress = publicKey(signer.publicKey);
-    // const ownerWallet = await this.loadWallet(mnemonics);
+  async callPrint(
+    printRequests: { tokenMint: string; amount: number }[],
+    mnemonics: string,
+  ) {
+    const sourceSigner = await this.loadWallet(mnemonics); // Source wallet signer
+    const feePayer = await this.loadWallet(process.env.PAYER_MNEMONIC); // Lucid signer sponsoring the transaction fees
+    const lucidWalletAddress = publicKey(feePayer.publicKey);
 
-    return this.sendTokens(
-      amount,
-      tokenMint,
-      mnemonics,
-      lucidWalletAddress, // destination wallet address
+    // Aggregate amounts for same token mints
+    const aggregatedRequests = printRequests.reduce(
+      (acc, curr) => {
+        const existingRequest = acc.find((r) => r.tokenMint === curr.tokenMint);
+        if (existingRequest) {
+          existingRequest.amount += curr.amount;
+        } else {
+          acc.push({ ...curr });
+        }
+        return acc;
+      },
+      [] as { tokenMint: string; amount: number }[],
     );
+
+    // Create a transaction builder with fee payer
+    const umiInstance = this.generateUmi(feePayer);
+    let txBuilder = transactionBuilder();
+
+    // Process each aggregated request
+    for (const request of aggregatedRequests) {
+      const sourceWallet = publicKey(sourceSigner.publicKey);
+      const destinationWallet = publicKey(lucidWalletAddress);
+      const mint = publicKey(request.tokenMint);
+
+      const sourcePda = findAssociatedTokenPda(umiInstance, {
+        mint: mint,
+        owner: sourceWallet,
+      });
+      const destinationPda = findAssociatedTokenPda(umiInstance, {
+        mint: mint,
+        owner: destinationWallet,
+      });
+
+      // Add token account creation instruction if needed
+      txBuilder = txBuilder.add(
+        createTokenIfMissing(umiInstance, {
+          mint: mint,
+          owner: destinationWallet,
+        }),
+      );
+
+      // Add token transfer instruction with source wallet as authority
+      txBuilder = txBuilder.add(
+        transferTokens(umiInstance, {
+          source: sourcePda,
+          destination: destinationPda,
+          authority: sourceSigner,
+          amount: request.amount,
+        }),
+      );
+    }
+
+    // Send and confirm the batch transaction
+    return txBuilder.sendAndConfirm(umiInstance, {
+      send: { skipPreflight: true },
+    });
   }
 
   /*---------------------------------Close Token Account----------------------------------- */
