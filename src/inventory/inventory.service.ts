@@ -193,7 +193,7 @@ export class InventoryService {
         const txPrice: SolAmount = {
           identifier: 'SOL',
           decimals: 9,
-          basisPoints: BigInt(1000000), // 1000000000 = 1 SOL, 0.001 SOL
+          basisPoints: BigInt(Math.floor(0.001 * LAMPORTS_PER_SOL)), // Convert 0.001 SOL to lamports first
         };
 
         txBuilder = txBuilder.add(
@@ -373,18 +373,34 @@ export class InventoryService {
   async callPrint(
     printRequests: { tokenMint: string; amount: number; mnemonics: string }[],
   ) {
+    console.log(
+      `Starting callPrint with ${printRequests.length} print requests`,
+    );
     const maxRetries = 3;
+    let currentBatchSize = 10; // Start with batch size of 5
     let currentTry = 0;
 
-    while (currentTry < maxRetries) {
+    // Process requests in batches
+    for (let i = 0; i < printRequests.length; ) {
+      const batch = printRequests.slice(i, i + currentBatchSize);
+      console.log(
+        `Processing batch ${Math.floor(i / currentBatchSize) + 1} with size ${
+          batch.length
+        }`,
+      );
+
       try {
         const feePayer = await this.loadWallet(process.env.PAYER_MNEMONIC);
+        console.log('Fee payer wallet loaded successfully');
         const lucidWalletAddress = publicKey(feePayer.publicKey);
-
         const umiInstance = this.generateUmi(feePayer);
         let txBuilder = transactionBuilder();
 
-        for (const request of printRequests) {
+        // Process current batch
+        for (const request of batch) {
+          console.log(
+            `Processing request for token mint: ${request.tokenMint}, amount: ${request.amount}`,
+          );
           const sourceSigner = await this.loadWallet(request.mnemonics);
           const sourceWallet = publicKey(sourceSigner.publicKey);
           const destinationWallet = publicKey(lucidWalletAddress);
@@ -399,6 +415,7 @@ export class InventoryService {
             owner: destinationWallet,
           });
 
+          console.log('Adding createTokenIfMissing instruction');
           txBuilder = txBuilder.add(
             createTokenIfMissing(umiInstance, {
               mint: mint,
@@ -406,6 +423,7 @@ export class InventoryService {
             }),
           );
 
+          console.log('Adding transferTokens instruction');
           txBuilder = txBuilder.add(
             transferTokens(umiInstance, {
               source: sourcePda,
@@ -416,9 +434,9 @@ export class InventoryService {
           );
         }
 
-        // Get the latest blockhash for transaction confirmation
+        console.log('Fetching latest blockhash...');
         const latestBlockhash = await umiInstance.rpc.getLatestBlockhash();
-
+        console.log('Sending transaction...');
         const result = await txBuilder.sendAndConfirm(umiInstance, {
           send: { skipPreflight: true },
           confirm: {
@@ -430,21 +448,51 @@ export class InventoryService {
             },
           },
         });
+        console.log(`Transaction successful. Batch txn hash: ${result}`);
 
-        return result;
+        // If successful, move to next batch
+        i += currentBatchSize; // Increment i only on success
+        currentBatchSize = 5; // Reset batch size to maximum on success
+        console.log(
+          `Successfully processed ${Math.min(i, printRequests.length)} of ${
+            printRequests.length
+          } total requests`,
+        );
       } catch (error) {
-        currentTry++;
-        if (
-          error.message.includes('504 Gateway Timeout') &&
-          currentTry < maxRetries
-        ) {
-          // Wait for 2 seconds before retrying
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+        console.error(`Error processing batch: ${error.message}`);
+        currentBatchSize--; // Reduce batch size on failure
+
+        if (currentBatchSize > 0) {
+          console.log(`Retrying with reduced batch size: ${currentBatchSize}`);
+          // Don't increment i, retry the same batch with smaller size
           continue;
         }
+
+        // If batch size reaches 0, check if it's a timeout error
+        if (error.message.includes('504 Gateway Timeout')) {
+          currentTry++;
+          console.log(
+            `Gateway timeout encountered. Retry attempt ${currentTry} of ${maxRetries}`,
+          );
+          if (currentTry < maxRetries) {
+            currentBatchSize = 5; // Reset batch size
+            console.log('Waiting 2 seconds before retry...');
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            continue;
+          }
+        }
+
+        console.error(
+          'Maximum retries reached or unrecoverable error. Throwing error.',
+        );
         throw error;
       }
+
+      // Reset counters for next batch
+      currentTry = 0;
+      currentBatchSize = 5;
     }
+    console.log('Successfully completed all print requests');
   }
 
   /*---------------------------------Close Token Account----------------------------------- */
