@@ -36,6 +36,7 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { getIrysUploader } from 'src/utils/irysUploader.util';
 import { mnemonicToWallet } from 'src/utils/mnemonic-to-wallet.util';
+import { HttpException, HttpStatus } from '@nestjs/common';
 
 @Injectable()
 export class InventoryService {
@@ -382,22 +383,14 @@ export class InventoryService {
       totalRequests: printRequests.length,
     };
 
-    console.log(
-      `Starting callPrint with ${printRequests.length} print requests`,
-    );
     const maxRetries = 3;
-    let currentBatchSize = 10;
+    let currentBatchSize = 4;
     let currentTry = 0;
 
     try {
       // Process requests in batches
       for (let i = 0; i < printRequests.length; ) {
         const batch = printRequests.slice(i, i + currentBatchSize);
-        console.log(
-          `Processing batch ${Math.floor(i / currentBatchSize) + 1} with size ${
-            batch.length
-          }`,
-        );
 
         try {
           const feePayer = await this.loadWallet(process.env.PAYER_MNEMONIC);
@@ -411,6 +404,27 @@ export class InventoryService {
             const sourceWallet = publicKey(sourceSigner.publicKey);
             const destinationWallet = publicKey(lucidWalletAddress);
             const mint = publicKey(request.tokenMint);
+
+            // Get token decimals
+            const connection = new Connection(process.env.RPC_ENDPOINT);
+            const mintInfo = await connection.getTokenSupply(
+              new PublicKey(request.tokenMint),
+            );
+            if (!mintInfo.value) {
+              throw new Error(`Invalid mint account: ${request.tokenMint}`);
+            }
+
+            // Convert amount to raw amount considering decimals
+            const decimals = mintInfo.value.decimals;
+            const rawAmount = Math.round(
+              request.amount * Math.pow(10, decimals),
+            );
+
+            if (isNaN(rawAmount) || rawAmount <= 0) {
+              throw new Error(
+                `Invalid amount for token ${request.tokenMint}: ${request.amount}`,
+              );
+            }
 
             const sourcePda = findAssociatedTokenPda(umiInstance, {
               mint: mint,
@@ -433,7 +447,7 @@ export class InventoryService {
                 source: sourcePda,
                 destination: destinationPda,
                 authority: sourceSigner,
-                amount: request.amount,
+                amount: BigInt(rawAmount),
               }),
             );
           }
@@ -451,13 +465,12 @@ export class InventoryService {
             },
           });
 
-          // Extract the signature from the result
           response.transactionHashes.push(result.signature.toString());
           response.processedRequests += batch.length;
 
-          // If successful, move to next batch
           i += currentBatchSize;
           currentBatchSize = 5;
+          currentTry = 0;
         } catch (error) {
           currentBatchSize--;
 
@@ -479,9 +492,6 @@ export class InventoryService {
 
           throw error;
         }
-
-        currentTry = 0;
-        currentBatchSize = 5;
       }
 
       response.success = true;
@@ -490,6 +500,19 @@ export class InventoryService {
       response.success = false;
       response.error = error.message || 'Unknown error occurred';
       response.message = `Failed to process all requests. Processed ${response.processedRequests} out of ${response.totalRequests} requests`;
+      throw new HttpException(
+        {
+          ...response,
+          summary: `${response.processedRequests} out of ${
+            response.totalRequests
+          } requests processed${
+            response.transactionHashes.length > 0
+              ? `. Transaction hashes: ${response.transactionHashes.join(', ')}`
+              : ''
+          }${response.error ? `. Error: ${response.error}` : ''}`,
+        },
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     return {
