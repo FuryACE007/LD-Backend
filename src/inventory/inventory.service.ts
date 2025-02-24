@@ -373,126 +373,135 @@ export class InventoryService {
   async callPrint(
     printRequests: { tokenMint: string; amount: number; mnemonics: string }[],
   ) {
+    const response = {
+      success: false,
+      message: '',
+      transactionHashes: [] as string[],
+      error: null as string | null,
+      processedRequests: 0,
+      totalRequests: printRequests.length,
+    };
+
     console.log(
       `Starting callPrint with ${printRequests.length} print requests`,
     );
     const maxRetries = 3;
-    let currentBatchSize = 10; // Start with batch size of 5
+    let currentBatchSize = 10;
     let currentTry = 0;
 
-    // Process requests in batches
-    for (let i = 0; i < printRequests.length; ) {
-      const batch = printRequests.slice(i, i + currentBatchSize);
-      console.log(
-        `Processing batch ${Math.floor(i / currentBatchSize) + 1} with size ${
-          batch.length
-        }`,
-      );
+    try {
+      // Process requests in batches
+      for (let i = 0; i < printRequests.length; ) {
+        const batch = printRequests.slice(i, i + currentBatchSize);
+        console.log(
+          `Processing batch ${Math.floor(i / currentBatchSize) + 1} with size ${
+            batch.length
+          }`,
+        );
 
-      try {
-        const feePayer = await this.loadWallet(process.env.PAYER_MNEMONIC);
-        console.log('Fee payer wallet loaded successfully');
-        const lucidWalletAddress = publicKey(feePayer.publicKey);
-        const umiInstance = this.generateUmi(feePayer);
-        let txBuilder = transactionBuilder();
+        try {
+          const feePayer = await this.loadWallet(process.env.PAYER_MNEMONIC);
+          const lucidWalletAddress = publicKey(feePayer.publicKey);
+          const umiInstance = this.generateUmi(feePayer);
+          let txBuilder = transactionBuilder();
 
-        // Process current batch
-        for (const request of batch) {
-          console.log(
-            `Processing request for token mint: ${request.tokenMint}, amount: ${request.amount}`,
-          );
-          const sourceSigner = await this.loadWallet(request.mnemonics);
-          const sourceWallet = publicKey(sourceSigner.publicKey);
-          const destinationWallet = publicKey(lucidWalletAddress);
-          const mint = publicKey(request.tokenMint);
+          // Process current batch
+          for (const request of batch) {
+            const sourceSigner = await this.loadWallet(request.mnemonics);
+            const sourceWallet = publicKey(sourceSigner.publicKey);
+            const destinationWallet = publicKey(lucidWalletAddress);
+            const mint = publicKey(request.tokenMint);
 
-          const sourcePda = findAssociatedTokenPda(umiInstance, {
-            mint: mint,
-            owner: sourceWallet,
-          });
-          const destinationPda = findAssociatedTokenPda(umiInstance, {
-            mint: mint,
-            owner: destinationWallet,
-          });
-
-          console.log('Adding createTokenIfMissing instruction');
-          txBuilder = txBuilder.add(
-            createTokenIfMissing(umiInstance, {
+            const sourcePda = findAssociatedTokenPda(umiInstance, {
+              mint: mint,
+              owner: sourceWallet,
+            });
+            const destinationPda = findAssociatedTokenPda(umiInstance, {
               mint: mint,
               owner: destinationWallet,
-            }),
-          );
+            });
 
-          console.log('Adding transferTokens instruction');
-          txBuilder = txBuilder.add(
-            transferTokens(umiInstance, {
-              source: sourcePda,
-              destination: destinationPda,
-              authority: sourceSigner,
-              amount: request.amount,
-            }),
-          );
-        }
+            txBuilder = txBuilder.add(
+              createTokenIfMissing(umiInstance, {
+                mint: mint,
+                owner: destinationWallet,
+              }),
+            );
 
-        console.log('Fetching latest blockhash...');
-        const latestBlockhash = await umiInstance.rpc.getLatestBlockhash();
-        console.log('Sending transaction...');
-        const result = await txBuilder.sendAndConfirm(umiInstance, {
-          send: { skipPreflight: true },
-          confirm: {
-            commitment: 'confirmed',
-            strategy: {
-              type: 'blockhash',
-              blockhash: latestBlockhash.blockhash,
-              lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+            txBuilder = txBuilder.add(
+              transferTokens(umiInstance, {
+                source: sourcePda,
+                destination: destinationPda,
+                authority: sourceSigner,
+                amount: request.amount,
+              }),
+            );
+          }
+
+          const latestBlockhash = await umiInstance.rpc.getLatestBlockhash();
+          const result = await txBuilder.sendAndConfirm(umiInstance, {
+            send: { skipPreflight: true },
+            confirm: {
+              commitment: 'confirmed',
+              strategy: {
+                type: 'blockhash',
+                blockhash: latestBlockhash.blockhash,
+                lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+              },
             },
-          },
-        });
-        console.log(`Transaction successful. Batch txn hash: ${result}`);
+          });
 
-        // If successful, move to next batch
-        i += currentBatchSize; // Increment i only on success
-        currentBatchSize = 5; // Reset batch size to maximum on success
-        console.log(
-          `Successfully processed ${Math.min(i, printRequests.length)} of ${
-            printRequests.length
-          } total requests`,
-        );
-      } catch (error) {
-        console.error(`Error processing batch: ${error.message}`);
-        currentBatchSize--; // Reduce batch size on failure
+          // Extract the signature from the result
+          response.transactionHashes.push(result.signature.toString());
+          response.processedRequests += batch.length;
 
-        if (currentBatchSize > 0) {
-          console.log(`Retrying with reduced batch size: ${currentBatchSize}`);
-          // Don't increment i, retry the same batch with smaller size
-          continue;
-        }
+          // If successful, move to next batch
+          i += currentBatchSize;
+          currentBatchSize = 5;
+        } catch (error) {
+          currentBatchSize--;
 
-        // If batch size reaches 0, check if it's a timeout error
-        if (error.message.includes('504 Gateway Timeout')) {
-          currentTry++;
-          console.log(
-            `Gateway timeout encountered. Retry attempt ${currentTry} of ${maxRetries}`,
-          );
-          if (currentTry < maxRetries) {
-            currentBatchSize = 5; // Reset batch size
-            console.log('Waiting 2 seconds before retry...');
-            await new Promise((resolve) => setTimeout(resolve, 2000));
+          if (currentBatchSize > 0) {
+            console.log(
+              `Retrying with reduced batch size: ${currentBatchSize}`,
+            );
             continue;
           }
+
+          if (error.message.includes('504 Gateway Timeout')) {
+            currentTry++;
+            if (currentTry < maxRetries) {
+              currentBatchSize = 5;
+              await new Promise((resolve) => setTimeout(resolve, 2000));
+              continue;
+            }
+          }
+
+          throw error;
         }
 
-        console.error(
-          'Maximum retries reached or unrecoverable error. Throwing error.',
-        );
-        throw error;
+        currentTry = 0;
+        currentBatchSize = 5;
       }
 
-      // Reset counters for next batch
-      currentTry = 0;
-      currentBatchSize = 5;
+      response.success = true;
+      response.message = 'All print requests processed successfully';
+    } catch (error) {
+      response.success = false;
+      response.error = error.message || 'Unknown error occurred';
+      response.message = `Failed to process all requests. Processed ${response.processedRequests} out of ${response.totalRequests} requests`;
     }
-    console.log('Successfully completed all print requests');
+
+    return {
+      ...response,
+      summary: `${response.processedRequests} out of ${
+        response.totalRequests
+      } requests processed${
+        response.transactionHashes.length > 0
+          ? `. Transaction hashes: ${response.transactionHashes.join(', ')}`
+          : ''
+      }${response.error ? `. Error: ${response.error}` : ''}`,
+    };
   }
 
   /*---------------------------------Close Token Account----------------------------------- */
