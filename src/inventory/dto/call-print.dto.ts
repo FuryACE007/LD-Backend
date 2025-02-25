@@ -15,6 +15,14 @@ class PrintRequestDto {
   amount: number;
 
   @ApiProperty({
+    description: 'The number of decimal places for the token.',
+    example: 6,
+    minimum: 0,
+    maximum: 9,
+  })
+  decimals: number;
+
+  @ApiProperty({
     description:
       'The mnemonic phrase for the wallet that will be used to sign this specific transfer.',
     example: 'wallet specific mnemonic phrase here',
@@ -32,11 +40,13 @@ export class CallPrintDto {
         tokenMint: '2uT3YF6v5178p5mkx62ak11HHmVoxgbzrG9dfhtF879e',
         amount: 100,
         mnemonics: 'wallet 1 mnemonic phrase here',
+        decimals: 6,
       },
       {
         tokenMint: '3fT4YF8v6189p6nly73ak22IImWpygbzrH0eghtG980f',
         amount: 50,
         mnemonics: 'wallet 2 mnemonic phrase here',
+        decimals: 6,
       },
     ],
   })

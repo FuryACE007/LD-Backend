@@ -14,6 +14,7 @@ import { CloseTokenAccountDto } from './entities/close-token-account.dto';
 import { CallPrintDto } from './dto/call-print.dto';
 import { UploadMetadataDto } from './dto/upload-token-metadata.dto';
 import { Logger } from '@nestjs/common';
+import { BatchResponse } from './dto/batch-response.dto';
 
 @ApiTags('inventory')
 @Controller('inventory')
@@ -132,43 +133,23 @@ export class InventoryController {
     status: 201,
     description:
       'The print requests were processed successfully. Returns the transaction signature.',
-    type: String,
-  })
-  @ApiResponse({
-    status: 400,
-    description:
-      'Bad Request - Invalid input parameters or token mint addresses.',
-  })
-  @ApiResponse({
-    status: 500,
-    description:
-      'Internal server error - Transaction failed or blockchain error.',
-  })
-  @ApiBody({
-    description:
-      'Batch of token print requests to process along with the mnemonic.',
-    type: CallPrintDto,
-    examples: {
-      batchRequest: {
-        summary: 'Example batch print request',
-        value: {
-          printRequests: [
-            {
-              tokenMint: '2uT3YF6v5178p5mkx62ak11HHmVoxgbzrG9dfhtF879e',
-              amount: 100,
-              mnemonics: 'wallet 1 mnemonic phrase here',
-            },
-            {
-              tokenMint: '3fT4YF8v6189p6nly73ak22IImWpygbzrH0eghtG980f',
-              amount: 50,
-              mnemonics: 'wallet 2 mnemonic phrase here',
-            },
-          ],
+    type: Object,
+    schema: {
+      properties: {
+        success: { type: 'boolean' },
+        batchResponses: {
+          type: 'array',
+          items: { $ref: '#/components/schemas/BatchResponse' },
         },
+        summary: { type: 'string' },
       },
     },
   })
-  async callPrint(@Body() callPrintDto: CallPrintDto) {
+  async callPrint(@Body() callPrintDto: CallPrintDto): Promise<{
+    success: boolean;
+    batchResponses: BatchResponse[];
+    summary: string;
+  }> {
     return this.inventoryService.callPrint(callPrintDto.printRequests);
   }
 

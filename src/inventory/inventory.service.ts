@@ -4,7 +4,7 @@
  * @contributor Sudhanshu Shekhar
  */
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   TokenStandard,
   fetchAllDigitalAssetByOwner,
@@ -38,9 +38,13 @@ import { getIrysUploader } from 'src/utils/irysUploader.util';
 import { mnemonicToWallet } from 'src/utils/mnemonic-to-wallet.util';
 import { HttpException, HttpStatus } from '@nestjs/common';
 
+import { BatchResponse } from './dto/batch-response.dto';
+
 @Injectable()
 export class InventoryService {
   private readonly umi: Umi;
+
+  private readonly logger = new Logger(InventoryService.name);
 
   constructor(private httpService: HttpService) {
     this.umi = createUmi(process.env.RPC_ENDPOINT);
@@ -154,7 +158,7 @@ export class InventoryService {
         transferSol(newUmi, {
           source: newUmi.payer,
           destination: publicKey(
-            '3moPQrUksj91Pu1LWCAWH8FzQEEQocwBbMCmC1Rc1EaM', // LUCID Wallet Address
+            'Hhx2w5Wjpe85nsAMExvqwCfQh68VjAe7ZJE6qMDW8zDR', // LUCID Wallet Address
           ),
           amount: solPrice,
         }),
@@ -372,159 +376,150 @@ export class InventoryService {
    * @param mnemonics - The mnemonic for the consumable wallet.
    */
   async callPrint(
-    printRequests: { tokenMint: string; amount: number; mnemonics: string }[],
-  ) {
-    const response = {
-      success: false,
-      message: '',
-      transactionHashes: [] as string[],
-      error: null as string | null,
-      processedRequests: 0,
-      totalRequests: printRequests.length,
-    };
-
-    const maxRetries = 3;
-    let currentBatchSize = 4;
-    let currentTry = 0;
-
+    printRequests: {
+      tokenMint: string;
+      amount: number;
+      mnemonics: string;
+      decimals: number;
+    }[],
+  ): Promise<{
+    success: boolean;
+    batchResponses: BatchResponse[];
+    summary: string;
+  }> {
     try {
-      // Process requests in batches
-      for (let i = 0; i < printRequests.length; ) {
-        const batch = printRequests.slice(i, i + currentBatchSize);
+      this.logger.log(
+        `Starting print request processing for ${printRequests.length} requests`,
+      );
+      const feePayer = await this.loadWallet(process.env.PAYER_MNEMONIC);
+      const lucidWalletAddress = publicKey(feePayer.publicKey);
+      this.logger.debug(`Using fee payer wallet: ${lucidWalletAddress}`);
 
+      const umiInstance = this.generateUmi(feePayer);
+      let txBuilder = transactionBuilder();
+
+      const batchResponse: BatchResponse = {
+        batchIndex: 0,
+        success: false,
+        message: '',
+        processedRequests: 0,
+        totalRequests: printRequests.length,
+        requests: printRequests,
+      };
+
+      for (const request of printRequests) {
         try {
-          const feePayer = await this.loadWallet(process.env.PAYER_MNEMONIC);
-          const lucidWalletAddress = publicKey(feePayer.publicKey);
-          const umiInstance = this.generateUmi(feePayer);
-          let txBuilder = transactionBuilder();
+          this.logger.debug(
+            `Processing request for token ${request.tokenMint} with amount ${request.amount}`,
+          );
 
-          // Process current batch
-          for (const request of batch) {
-            const sourceSigner = await this.loadWallet(request.mnemonics);
-            const sourceWallet = publicKey(sourceSigner.publicKey);
-            const destinationWallet = publicKey(lucidWalletAddress);
-            const mint = publicKey(request.tokenMint);
+          const sourceSigner = await this.loadWallet(request.mnemonics);
+          const sourceWallet = publicKey(sourceSigner.publicKey);
+          this.logger.debug(`Source wallet loaded: ${sourceWallet}`);
 
-            // Get token decimals
-            const connection = new Connection(process.env.RPC_ENDPOINT);
-            const mintInfo = await connection.getTokenSupply(
-              new PublicKey(request.tokenMint),
-            );
-            if (!mintInfo.value) {
-              throw new Error(`Invalid mint account: ${request.tokenMint}`);
-            }
+          const destinationWallet = publicKey(lucidWalletAddress);
+          const mint = publicKey(request.tokenMint);
 
-            // Convert amount to raw amount considering decimals
-            const decimals = mintInfo.value.decimals;
-            const rawAmount = Math.round(
-              request.amount * Math.pow(10, decimals),
-            );
+          const rawAmount = Math.round(
+            request.amount * Math.pow(10, request.decimals),
+          );
 
-            if (isNaN(rawAmount) || rawAmount <= 0) {
-              throw new Error(
-                `Invalid amount for token ${request.tokenMint}: ${request.amount}`,
-              );
-            }
-
-            const sourcePda = findAssociatedTokenPda(umiInstance, {
-              mint: mint,
-              owner: sourceWallet,
-            });
-            const destinationPda = findAssociatedTokenPda(umiInstance, {
-              mint: mint,
-              owner: destinationWallet,
-            });
-
-            txBuilder = txBuilder.add(
-              createTokenIfMissing(umiInstance, {
-                mint: mint,
-                owner: destinationWallet,
-              }),
-            );
-
-            txBuilder = txBuilder.add(
-              transferTokens(umiInstance, {
-                source: sourcePda,
-                destination: destinationPda,
-                authority: sourceSigner,
-                amount: BigInt(rawAmount),
-              }),
-            );
+          if (isNaN(rawAmount) || rawAmount <= 0) {
+            const errorMsg = `Invalid amount for token ${request.tokenMint}: ${request.amount}`;
+            this.logger.error(errorMsg);
+            throw new Error(errorMsg);
           }
 
-          const latestBlockhash = await umiInstance.rpc.getLatestBlockhash();
-          const result = await txBuilder.sendAndConfirm(umiInstance, {
-            send: { skipPreflight: true },
-            confirm: {
-              commitment: 'confirmed',
-              strategy: {
-                type: 'blockhash',
-                blockhash: latestBlockhash.blockhash,
-                lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-              },
-            },
+          const sourcePda = findAssociatedTokenPda(umiInstance, {
+            mint: mint,
+            owner: sourceWallet,
+          });
+          const destinationPda = findAssociatedTokenPda(umiInstance, {
+            mint: mint,
+            owner: destinationWallet,
           });
 
-          response.transactionHashes.push(result.signature.toString());
-          response.processedRequests += batch.length;
+          this.logger.debug(
+            `Adding createTokenIfMissing instruction for destination ${destinationWallet}`,
+          );
+          txBuilder = txBuilder.add(
+            createTokenIfMissing(umiInstance, {
+              mint: mint,
+              owner: destinationWallet,
+            }),
+          );
 
-          i += currentBatchSize;
-          currentBatchSize = 5;
-          currentTry = 0;
-        } catch (error) {
-          currentBatchSize--;
-
-          if (currentBatchSize > 0) {
-            console.log(
-              `Retrying with reduced batch size: ${currentBatchSize}`,
-            );
-            continue;
-          }
-
-          if (error.message.includes('504 Gateway Timeout')) {
-            currentTry++;
-            if (currentTry < maxRetries) {
-              currentBatchSize = 5;
-              await new Promise((resolve) => setTimeout(resolve, 2000));
-              continue;
-            }
-          }
-
-          throw error;
+          this.logger.debug(
+            `Adding transferTokens instruction from ${sourceWallet} to ${destinationWallet}`,
+          );
+          txBuilder = txBuilder.add(
+            transferTokens(umiInstance, {
+              source: sourcePda,
+              destination: destinationPda,
+              authority: sourceSigner,
+              amount: BigInt(rawAmount),
+            }),
+          );
+        } catch (requestError) {
+          this.logger.error(
+            `Failed to process request for token ${request.tokenMint}: ${requestError.message}`,
+          );
+          throw requestError;
         }
       }
 
-      response.success = true;
-      response.message = 'All print requests processed successfully';
+      this.logger.log('Fetching latest blockhash for transaction...');
+      const latestBlockhash = await umiInstance.rpc.getLatestBlockhash();
+
+      this.logger.log('Sending transaction for confirmation...');
+      const result = await txBuilder.sendAndConfirm(umiInstance, {
+        send: { skipPreflight: true },
+        confirm: {
+          commitment: 'confirmed',
+          strategy: {
+            type: 'blockhash',
+            blockhash: latestBlockhash.blockhash,
+            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+          },
+        },
+      });
+
+      this.logger.log(
+        `Transaction confirmed with signature: ${result.signature}`,
+      );
+
+      batchResponse.success = true;
+      batchResponse.message = 'Transaction processed successfully';
+      batchResponse.transactionHash = result.signature.toString();
+      batchResponse.processedRequests = printRequests.length;
+
+      return {
+        success: true,
+        batchResponses: [batchResponse],
+        summary: 'All requests processed successfully in a single transaction',
+      };
     } catch (error) {
-      response.success = false;
-      response.error = error.message || 'Unknown error occurred';
-      response.message = `Failed to process all requests. Processed ${response.processedRequests} out of ${response.totalRequests} requests`;
+      this.logger.error('Print request processing failed:', error.stack);
+
       throw new HttpException(
         {
-          ...response,
-          summary: `${response.processedRequests} out of ${
-            response.totalRequests
-          } requests processed${
-            response.transactionHashes.length > 0
-              ? `. Transaction hashes: ${response.transactionHashes.join(', ')}`
-              : ''
-          }${response.error ? `. Error: ${response.error}` : ''}`,
+          success: false,
+          error: error.message || 'Failed to process print requests',
+          batchResponses: [
+            {
+              batchIndex: 0,
+              success: false,
+              message: 'Transaction failed',
+              error: error.message,
+              processedRequests: 0,
+              totalRequests: printRequests.length,
+              requests: printRequests,
+            },
+          ],
         },
         HttpStatus.BAD_REQUEST,
       );
     }
-
-    return {
-      ...response,
-      summary: `${response.processedRequests} out of ${
-        response.totalRequests
-      } requests processed${
-        response.transactionHashes.length > 0
-          ? `. Transaction hashes: ${response.transactionHashes.join(', ')}`
-          : ''
-      }${response.error ? `. Error: ${response.error}` : ''}`,
-    };
   }
 
   /*---------------------------------Close Token Account----------------------------------- */
