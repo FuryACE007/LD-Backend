@@ -398,6 +398,11 @@ export class InventoryService {
       const umiInstance = this.generateUmi(feePayer);
       let txBuilder = transactionBuilder();
 
+      // Pre-load all signers to avoid repeated wallet loading
+      const sourceSigners = await Promise.all(
+        printRequests.map((request) => this.loadWallet(request.mnemonics)),
+      );
+
       const batchResponse: BatchResponse = {
         batchIndex: 0,
         success: false,
@@ -407,73 +412,73 @@ export class InventoryService {
         requests: printRequests,
       };
 
-      for (const request of printRequests) {
-        try {
-          this.logger.debug(
-            `Processing request for token ${request.tokenMint} with amount ${request.amount}`,
-          );
+      // Process all requests in parallel for efficiency
+      await Promise.all(
+        printRequests.map(async (request, index) => {
+          try {
+            this.logger.debug(
+              `Processing request for token ${request.tokenMint} with amount ${request.amount}`,
+            );
 
-          const sourceSigner = await this.loadWallet(request.mnemonics);
-          const sourceWallet = publicKey(sourceSigner.publicKey);
-          this.logger.debug(`Source wallet loaded: ${sourceWallet}`);
+            const sourceSigner = sourceSigners[index];
+            const sourceWallet = publicKey(sourceSigner.publicKey);
+            const destinationWallet = publicKey(lucidWalletAddress);
+            const mint = publicKey(request.tokenMint);
 
-          const destinationWallet = publicKey(lucidWalletAddress);
-          const mint = publicKey(request.tokenMint);
+            const rawAmount = Math.round(
+              request.amount * Math.pow(10, request.decimals),
+            );
 
-          const rawAmount = Math.round(
-            request.amount * Math.pow(10, request.decimals),
-          );
+            if (isNaN(rawAmount) || rawAmount <= 0) {
+              const errorMsg = `Invalid amount for token ${request.tokenMint}: ${request.amount}`;
+              this.logger.error(errorMsg);
+              throw new Error(errorMsg);
+            }
 
-          if (isNaN(rawAmount) || rawAmount <= 0) {
-            const errorMsg = `Invalid amount for token ${request.tokenMint}: ${request.amount}`;
-            this.logger.error(errorMsg);
-            throw new Error(errorMsg);
-          }
-
-          const sourcePda = findAssociatedTokenPda(umiInstance, {
-            mint: mint,
-            owner: sourceWallet,
-          });
-          const destinationPda = findAssociatedTokenPda(umiInstance, {
-            mint: mint,
-            owner: destinationWallet,
-          });
-
-          this.logger.debug(
-            `Adding createTokenIfMissing instruction for destination ${destinationWallet}`,
-          );
-          txBuilder = txBuilder.add(
-            createTokenIfMissing(umiInstance, {
+            const sourcePda = findAssociatedTokenPda(umiInstance, {
+              mint: mint,
+              owner: sourceWallet,
+            });
+            const destinationPda = findAssociatedTokenPda(umiInstance, {
               mint: mint,
               owner: destinationWallet,
-            }),
-          );
+            });
 
-          this.logger.debug(
-            `Adding transferTokens instruction from ${sourceWallet} to ${destinationWallet}`,
-          );
-          txBuilder = txBuilder.add(
-            transferTokens(umiInstance, {
-              source: sourcePda,
-              destination: destinationPda,
-              authority: sourceSigner,
-              amount: BigInt(rawAmount),
-            }),
-          );
-        } catch (requestError) {
-          this.logger.error(
-            `Failed to process request for token ${request.tokenMint}: ${requestError.message}`,
-          );
-          throw requestError;
-        }
-      }
+            // Add token account creation instruction only if needed
+            txBuilder = txBuilder.add(
+              createTokenIfMissing(umiInstance, {
+                mint: mint,
+                owner: destinationWallet,
+              }),
+            );
+
+            // Add token transfer instruction
+            txBuilder = txBuilder.add(
+              transferTokens(umiInstance, {
+                source: sourcePda,
+                destination: destinationPda,
+                authority: sourceSigner,
+                amount: BigInt(rawAmount),
+              }),
+            );
+          } catch (requestError) {
+            this.logger.error(
+              `Failed to process request for token ${request.tokenMint}: ${requestError.message}`,
+            );
+            throw requestError;
+          }
+        }),
+      );
 
       this.logger.log('Fetching latest blockhash for transaction...');
       const latestBlockhash = await umiInstance.rpc.getLatestBlockhash();
 
       this.logger.log('Sending transaction for confirmation...');
       const result = await txBuilder.sendAndConfirm(umiInstance, {
-        send: { skipPreflight: true },
+        send: {
+          skipPreflight: true,
+          maxRetries: 3,
+        },
         confirm: {
           commitment: 'confirmed',
           strategy: {
