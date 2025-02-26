@@ -331,6 +331,7 @@ export class InventoryService {
     const destinationWallet = publicKey(destinationWalletAddress);
 
     const mint = publicKey(tokenMint);
+    const rawAmount = Math.round(amount * Math.pow(10, 6));
 
     const ownerPda = findAssociatedTokenPda(umiInstance, {
       // Gets the ATA of the sender account
@@ -358,11 +359,11 @@ export class InventoryService {
         source: ownerPda,
         destination: destinationPda,
         authority: signer,
-        amount: amount,
+        amount: BigInt(rawAmount),
       }),
     );
     txnBuilder
-      .sendAndConfirm(umiInstance, { send: { skipPreflight: true } })
+      .sendAndConfirm(umiInstance, { send: { skipPreflight: false } })
       .then(() => {
         console.log('Token sent');
       });
@@ -380,7 +381,6 @@ export class InventoryService {
       tokenMint: string;
       amount: number;
       mnemonics: string;
-      decimals: number;
     }[],
   ): Promise<{
     success: boolean;
@@ -435,9 +435,7 @@ export class InventoryService {
             const destinationWallet = publicKey(lucidWalletAddress);
             const mint = publicKey(request.tokenMint);
 
-            const rawAmount = Math.round(
-              request.amount * Math.pow(10, request.decimals),
-            );
+            const rawAmount = Math.round(request.amount * Math.pow(10, 6));
 
             if (isNaN(rawAmount) || rawAmount <= 0) {
               throw new Error(
