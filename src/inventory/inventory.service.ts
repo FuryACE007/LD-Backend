@@ -4,7 +4,7 @@
  * @contributor Sudhanshu Shekhar
  */
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   TokenStandard,
   fetchAllDigitalAssetByOwner,
@@ -38,9 +38,13 @@ import { getIrysUploader } from 'src/utils/irysUploader.util';
 import { mnemonicToWallet } from 'src/utils/mnemonic-to-wallet.util';
 import { HttpException, HttpStatus } from '@nestjs/common';
 
+import { BatchResponse } from './dto/batch-response.dto';
+
 @Injectable()
 export class InventoryService {
   private readonly umi: Umi;
+
+  private readonly logger = new Logger(InventoryService.name);
 
   constructor(private httpService: HttpService) {
     this.umi = createUmi(process.env.RPC_ENDPOINT);
@@ -154,7 +158,7 @@ export class InventoryService {
         transferSol(newUmi, {
           source: newUmi.payer,
           destination: publicKey(
-            '3moPQrUksj91Pu1LWCAWH8FzQEEQocwBbMCmC1Rc1EaM', // LUCID Wallet Address
+            'Hhx2w5Wjpe85nsAMExvqwCfQh68VjAe7ZJE6qMDW8zDR', // LUCID Wallet Address
           ),
           amount: solPrice,
         }),
@@ -327,6 +331,7 @@ export class InventoryService {
     const destinationWallet = publicKey(destinationWalletAddress);
 
     const mint = publicKey(tokenMint);
+    const rawAmount = Math.round(amount * Math.pow(10, 6));
 
     const ownerPda = findAssociatedTokenPda(umiInstance, {
       // Gets the ATA of the sender account
@@ -354,11 +359,11 @@ export class InventoryService {
         source: ownerPda,
         destination: destinationPda,
         authority: signer,
-        amount: amount,
+        amount: BigInt(rawAmount),
       }),
     );
     txnBuilder
-      .sendAndConfirm(umiInstance, { send: { skipPreflight: true } })
+      .sendAndConfirm(umiInstance, { send: { skipPreflight: false } })
       .then(() => {
         console.log('Token sent');
       });
@@ -372,53 +377,65 @@ export class InventoryService {
    * @param mnemonics - The mnemonic for the consumable wallet.
    */
   async callPrint(
-    printRequests: { tokenMint: string; amount: number; mnemonics: string }[],
-  ) {
-    const response = {
-      success: false,
-      message: '',
-      transactionHashes: [] as string[],
-      error: null as string | null,
-      processedRequests: 0,
-      totalRequests: printRequests.length,
-    };
-
-    const maxRetries = 3;
-    let currentBatchSize = 4;
-    let currentTry = 0;
-
+    printRequests: {
+      tokenMint: string;
+      amount: number;
+      mnemonics: string;
+    }[],
+  ): Promise<{
+    success: boolean;
+    batchResponses: BatchResponse[];
+    summary: string;
+  }> {
     try {
-      // Process requests in batches
-      for (let i = 0; i < printRequests.length; ) {
-        const batch = printRequests.slice(i, i + currentBatchSize);
+      this.logger.log(
+        `Starting print request processing for ${printRequests.length} requests`,
+      );
+      const feePayer = await this.loadWallet(process.env.PAYER_MNEMONIC);
+      const lucidWalletAddress = publicKey(feePayer.publicKey);
+      this.logger.debug(`Using fee payer wallet: ${lucidWalletAddress}`);
+
+      const umiInstance = this.generateUmi(feePayer);
+      const batchSize = 4; // Reduced batch size to stay within transaction limits
+      const batches = [];
+      let hasFailedBatches = false;
+
+      // Split requests into smaller batches
+      for (let i = 0; i < printRequests.length; i += batchSize) {
+        batches.push(printRequests.slice(i, i + batchSize));
+      }
+
+      const batchResponses: BatchResponse[] = [];
+
+      // Process each batch
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const currentBatch = batches[batchIndex];
+        let txBuilder = transactionBuilder();
+
+        const batchResponse: BatchResponse = {
+          batchIndex,
+          success: false,
+          message: '',
+          processedRequests: 0,
+          totalRequests: currentBatch.length,
+          requests: currentBatch,
+        };
 
         try {
-          const feePayer = await this.loadWallet(process.env.PAYER_MNEMONIC);
-          const lucidWalletAddress = publicKey(feePayer.publicKey);
-          const umiInstance = this.generateUmi(feePayer);
-          let txBuilder = transactionBuilder();
+          // Pre-load all signers for current batch
+          const sourceSigners = await Promise.all(
+            currentBatch.map((request) => this.loadWallet(request.mnemonics)),
+          );
 
           // Process current batch
-          for (const request of batch) {
-            const sourceSigner = await this.loadWallet(request.mnemonics);
+          for (let i = 0; i < currentBatch.length; i++) {
+            const request = currentBatch[i];
+            const sourceSigner = sourceSigners[i];
             const sourceWallet = publicKey(sourceSigner.publicKey);
             const destinationWallet = publicKey(lucidWalletAddress);
             const mint = publicKey(request.tokenMint);
 
-            // Get token decimals
-            const connection = new Connection(process.env.RPC_ENDPOINT);
-            const mintInfo = await connection.getTokenSupply(
-              new PublicKey(request.tokenMint),
-            );
-            if (!mintInfo.value) {
-              throw new Error(`Invalid mint account: ${request.tokenMint}`);
-            }
-
-            // Convert amount to raw amount considering decimals
-            const decimals = mintInfo.value.decimals;
-            const rawAmount = Math.round(
-              request.amount * Math.pow(10, decimals),
-            );
+            const rawAmount = Math.round(request.amount * Math.pow(10, 6));
 
             if (isNaN(rawAmount) || rawAmount <= 0) {
               throw new Error(
@@ -435,6 +452,7 @@ export class InventoryService {
               owner: destinationWallet,
             });
 
+            // Add token account creation instruction only if needed
             txBuilder = txBuilder.add(
               createTokenIfMissing(umiInstance, {
                 mint: mint,
@@ -442,6 +460,7 @@ export class InventoryService {
               }),
             );
 
+            // Add token transfer instruction
             txBuilder = txBuilder.add(
               transferTokens(umiInstance, {
                 source: sourcePda,
@@ -452,9 +471,13 @@ export class InventoryService {
             );
           }
 
+          // Send and confirm the batch transaction
           const latestBlockhash = await umiInstance.rpc.getLatestBlockhash();
           const result = await txBuilder.sendAndConfirm(umiInstance, {
-            send: { skipPreflight: true },
+            send: {
+              // skipPreflight: true,
+              maxRetries: 3,
+            },
             confirm: {
               commitment: 'confirmed',
               strategy: {
@@ -465,66 +488,52 @@ export class InventoryService {
             },
           });
 
-          response.transactionHashes.push(result.signature.toString());
-          response.processedRequests += batch.length;
+          this.logger.log(
+            `Batch ${batchIndex + 1}/${
+              batches.length
+            } confirmed with signature: ${result.signature}`,
+          );
 
-          i += currentBatchSize;
-          currentBatchSize = 5;
-          currentTry = 0;
-        } catch (error) {
-          currentBatchSize--;
-
-          if (currentBatchSize > 0) {
-            console.log(
-              `Retrying with reduced batch size: ${currentBatchSize}`,
-            );
-            continue;
-          }
-
-          if (error.message.includes('504 Gateway Timeout')) {
-            currentTry++;
-            if (currentTry < maxRetries) {
-              currentBatchSize = 5;
-              await new Promise((resolve) => setTimeout(resolve, 2000));
-              continue;
-            }
-          }
-
-          throw error;
+          batchResponse.success = true;
+          batchResponse.message = 'Batch processed successfully';
+          batchResponse.transactionHash = result.signature.toString();
+          batchResponse.processedRequests = currentBatch.length;
+        } catch (batchError) {
+          hasFailedBatches = true;
+          batchResponse.success = false;
+          batchResponse.message =
+            batchError.message || 'Batch processing failed';
+          batchResponse.processedRequests = 0;
+          this.logger.error(`Batch ${batchIndex + 1} failed:`, batchError);
         }
+
+        batchResponses.push(batchResponse);
       }
 
-      response.success = true;
-      response.message = 'All print requests processed successfully';
+      const successfulBatches = batchResponses.filter(
+        (batch) => batch.success,
+      ).length;
+      const failedBatches = batchResponses.filter(
+        (batch) => !batch.success,
+      ).length;
+
+      return {
+        success: !hasFailedBatches,
+        batchResponses,
+        summary: `Processed ${printRequests.length} requests in ${batches.length} batches. ${successfulBatches} succeeded, ${failedBatches} failed.`,
+      };
     } catch (error) {
-      response.success = false;
-      response.error = error.message || 'Unknown error occurred';
-      response.message = `Failed to process all requests. Processed ${response.processedRequests} out of ${response.totalRequests} requests`;
+      this.logger.error('Print request processing failed:', error.stack);
+
       throw new HttpException(
         {
-          ...response,
-          summary: `${response.processedRequests} out of ${
-            response.totalRequests
-          } requests processed${
-            response.transactionHashes.length > 0
-              ? `. Transaction hashes: ${response.transactionHashes.join(', ')}`
-              : ''
-          }${response.error ? `. Error: ${response.error}` : ''}`,
+          success: false,
+          error: error.message || 'Failed to process print requests',
+          batchResponses: [],
         },
         HttpStatus.BAD_REQUEST,
       );
     }
-
-    return {
-      ...response,
-      summary: `${response.processedRequests} out of ${
-        response.totalRequests
-      } requests processed${
-        response.transactionHashes.length > 0
-          ? `. Transaction hashes: ${response.transactionHashes.join(', ')}`
-          : ''
-      }${response.error ? `. Error: ${response.error}` : ''}`,
-    };
   }
 
   /*---------------------------------Close Token Account----------------------------------- */
