@@ -396,31 +396,41 @@ export class InventoryService {
       this.logger.debug(`Using fee payer wallet: ${lucidWalletAddress}`);
 
       const umiInstance = this.generateUmi(feePayer);
-      let txBuilder = transactionBuilder();
+      const batchSize = 4; // Reduced batch size to stay within transaction limits
+      const batches = [];
+      let hasFailedBatches = false;
 
-      // Pre-load all signers to avoid repeated wallet loading
-      const sourceSigners = await Promise.all(
-        printRequests.map((request) => this.loadWallet(request.mnemonics)),
-      );
+      // Split requests into smaller batches
+      for (let i = 0; i < printRequests.length; i += batchSize) {
+        batches.push(printRequests.slice(i, i + batchSize));
+      }
 
-      const batchResponse: BatchResponse = {
-        batchIndex: 0,
-        success: false,
-        message: '',
-        processedRequests: 0,
-        totalRequests: printRequests.length,
-        requests: printRequests,
-      };
+      const batchResponses: BatchResponse[] = [];
 
-      // Process all requests in parallel for efficiency
-      await Promise.all(
-        printRequests.map(async (request, index) => {
-          try {
-            this.logger.debug(
-              `Processing request for token ${request.tokenMint} with amount ${request.amount}`,
-            );
+      // Process each batch
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const currentBatch = batches[batchIndex];
+        let txBuilder = transactionBuilder();
 
-            const sourceSigner = sourceSigners[index];
+        const batchResponse: BatchResponse = {
+          batchIndex,
+          success: false,
+          message: '',
+          processedRequests: 0,
+          totalRequests: currentBatch.length,
+          requests: currentBatch,
+        };
+
+        try {
+          // Pre-load all signers for current batch
+          const sourceSigners = await Promise.all(
+            currentBatch.map((request) => this.loadWallet(request.mnemonics)),
+          );
+
+          // Process current batch
+          for (let i = 0; i < currentBatch.length; i++) {
+            const request = currentBatch[i];
+            const sourceSigner = sourceSigners[i];
             const sourceWallet = publicKey(sourceSigner.publicKey);
             const destinationWallet = publicKey(lucidWalletAddress);
             const mint = publicKey(request.tokenMint);
@@ -430,9 +440,9 @@ export class InventoryService {
             );
 
             if (isNaN(rawAmount) || rawAmount <= 0) {
-              const errorMsg = `Invalid amount for token ${request.tokenMint}: ${request.amount}`;
-              this.logger.error(errorMsg);
-              throw new Error(errorMsg);
+              throw new Error(
+                `Invalid amount for token ${request.tokenMint}: ${request.amount}`,
+              );
             }
 
             const sourcePda = findAssociatedTokenPda(umiInstance, {
@@ -461,47 +471,58 @@ export class InventoryService {
                 amount: BigInt(rawAmount),
               }),
             );
-          } catch (requestError) {
-            this.logger.error(
-              `Failed to process request for token ${request.tokenMint}: ${requestError.message}`,
-            );
-            throw requestError;
           }
-        }),
-      );
 
-      this.logger.log('Fetching latest blockhash for transaction...');
-      const latestBlockhash = await umiInstance.rpc.getLatestBlockhash();
+          // Send and confirm the batch transaction
+          const latestBlockhash = await umiInstance.rpc.getLatestBlockhash();
+          const result = await txBuilder.sendAndConfirm(umiInstance, {
+            send: {
+              // skipPreflight: true,
+              maxRetries: 3,
+            },
+            confirm: {
+              commitment: 'confirmed',
+              strategy: {
+                type: 'blockhash',
+                blockhash: latestBlockhash.blockhash,
+                lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+              },
+            },
+          });
 
-      this.logger.log('Sending transaction for confirmation...');
-      const result = await txBuilder.sendAndConfirm(umiInstance, {
-        send: {
-          skipPreflight: true,
-          maxRetries: 3,
-        },
-        confirm: {
-          commitment: 'confirmed',
-          strategy: {
-            type: 'blockhash',
-            blockhash: latestBlockhash.blockhash,
-            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-          },
-        },
-      });
+          this.logger.log(
+            `Batch ${batchIndex + 1}/${
+              batches.length
+            } confirmed with signature: ${result.signature}`,
+          );
 
-      this.logger.log(
-        `Transaction confirmed with signature: ${result.signature}`,
-      );
+          batchResponse.success = true;
+          batchResponse.message = 'Batch processed successfully';
+          batchResponse.transactionHash = result.signature.toString();
+          batchResponse.processedRequests = currentBatch.length;
+        } catch (batchError) {
+          hasFailedBatches = true;
+          batchResponse.success = false;
+          batchResponse.message =
+            batchError.message || 'Batch processing failed';
+          batchResponse.processedRequests = 0;
+          this.logger.error(`Batch ${batchIndex + 1} failed:`, batchError);
+        }
 
-      batchResponse.success = true;
-      batchResponse.message = 'Transaction processed successfully';
-      batchResponse.transactionHash = result.signature.toString();
-      batchResponse.processedRequests = printRequests.length;
+        batchResponses.push(batchResponse);
+      }
+
+      const successfulBatches = batchResponses.filter(
+        (batch) => batch.success,
+      ).length;
+      const failedBatches = batchResponses.filter(
+        (batch) => !batch.success,
+      ).length;
 
       return {
-        success: true,
-        batchResponses: [batchResponse],
-        summary: 'All requests processed successfully in a single transaction',
+        success: !hasFailedBatches,
+        batchResponses,
+        summary: `Processed ${printRequests.length} requests in ${batches.length} batches. ${successfulBatches} succeeded, ${failedBatches} failed.`,
       };
     } catch (error) {
       this.logger.error('Print request processing failed:', error.stack);
@@ -510,17 +531,7 @@ export class InventoryService {
         {
           success: false,
           error: error.message || 'Failed to process print requests',
-          batchResponses: [
-            {
-              batchIndex: 0,
-              success: false,
-              message: 'Transaction failed',
-              error: error.message,
-              processedRequests: 0,
-              totalRequests: printRequests.length,
-              requests: printRequests,
-            },
-          ],
+          batchResponses: [],
         },
         HttpStatus.BAD_REQUEST,
       );
