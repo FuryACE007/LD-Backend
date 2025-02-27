@@ -6,8 +6,14 @@ set -e
 # Pull the latest changes
 git pull origin main
 
-# Stop the existing containers
-docker compose down
+# Stop the existing containers and remove them along with their volumes
+docker compose down -v
 
-# Build and start the containers
-docker compose up -d --build
+# Remove any dangling images
+docker image prune -f
+
+# Build and start the containers with --no-cache to ensure fresh environment variables
+docker compose up -d --build --force-recreate --no-cache
+
+# Display logs to verify deployment
+docker compose logs -f
