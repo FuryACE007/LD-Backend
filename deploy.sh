@@ -13,7 +13,7 @@ docker compose down -v
 docker image prune -f
 
 # Build and start the containers with --no-cache to ensure fresh environment variables
-docker compose up -d --build --force-recreate --no-cache
+docker compose up -d --build --force-recreate 
 
 # Display logs to verify deployment
 docker compose logs -f
