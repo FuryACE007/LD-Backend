@@ -15,5 +15,9 @@ docker image prune -f
 # Build and start the containers with --no-cache to ensure fresh environment variables
 docker compose up -d --build --force-recreate 
 
-# Display logs to verify deployment
-docker compose logs -f
+# Display initial logs for 10 seconds to verify deployment
+docker compose logs --tail=50
+sleep 10
+
+# Continue with remaining deployment steps
+# Add your SSH setup and postCheckout code here
