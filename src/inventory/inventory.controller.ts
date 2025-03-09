@@ -176,6 +176,7 @@ export class InventoryController {
     return this.inventoryService.closeTokenAccount(
       closeTokenAccountDto.walletAddress,
       closeTokenAccountDto.tokenMint,
+      closeTokenAccountDto.mnemonic,
     );
   }
 

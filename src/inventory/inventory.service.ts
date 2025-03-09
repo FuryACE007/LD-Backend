@@ -537,23 +537,134 @@ export class InventoryService {
   }
 
   /*---------------------------------Close Token Account----------------------------------- */
-  async closeTokenAccount(walletAddress: string, tokenMint: string) {
-    const signer = await this.loadWallet(process.env.PAYER_MNEMONIC); // Lucid signer sponsoring the transaction fees
-    const umiInstance = this.generateUmi(signer);
+  async closeTokenAccount(
+    walletAddress: string,
+    tokenMint: string,
+    mnemonics: string,
+  ) {
+    try {
+      console.log(
+        `Initiating token account closure for wallet: ${walletAddress}, token: ${tokenMint}`,
+      );
 
-    const wallet = publicKey(walletAddress);
-    const mint = publicKey(tokenMint);
+      // Load wallets
+      const signer = await this.loadWallet(mnemonics); // the owner's wallet signer
+      if (!signer) {
+        throw new Error('Failed to load owner wallet signer');
+      }
 
-    const tokenPda = await findAssociatedTokenPda(umiInstance, {
-      mint: mint,
-      owner: wallet,
-    });
+      const feePayer = await this.loadWallet(process.env.PAYER_MNEMONIC); // Lucid signer sponsoring the transaction fees
+      if (!feePayer) {
+        throw new Error('Failed to load fee payer wallet');
+      }
 
-    closeToken(umiInstance, {
-      account: tokenPda,
-      destination: umiInstance.payer.publicKey,
-      owner: signer,
-    }).sendAndConfirm(umiInstance);
+      const umiInstance = this.generateUmi(feePayer);
+      console.log('UMI instance generated successfully');
+
+      const ownerWallet = publicKey(walletAddress);
+      const mint = publicKey(tokenMint);
+
+      // Get token Account
+      const tokenAccount = await getAssociatedTokenAddress(
+        new PublicKey(mint),
+        new PublicKey(ownerWallet),
+      );
+
+      const connection = new Connection(process.env.RPC_ENDPOINT);
+      const balance = await connection.getTokenAccountBalance(tokenAccount);
+      console.log(
+        `Token account balance before closure: ${balance.value.uiAmount}`,
+      );
+
+      const ownerPda = await findAssociatedTokenPda(umiInstance, {
+        mint: mint,
+        owner: ownerWallet,
+      });
+
+      const destinationPda = await findAssociatedTokenPda(umiInstance, {
+        mint: mint,
+        owner: publicKey(feePayer.publicKey),
+      });
+
+      // Transfer remaining tokens if balance is not zero
+      if (balance.value.uiAmount !== 0) {
+        console.log(
+          `Transferring remaining balance of ${balance.value.uiAmount} tokens`,
+        );
+        let txnBuilder = transactionBuilder();
+
+        txnBuilder = txnBuilder.add(
+          createTokenIfMissing(umiInstance, {
+            mint: mint,
+            owner: publicKey(feePayer.publicKey),
+          }),
+        );
+
+        txnBuilder = txnBuilder.add(
+          transferTokens(umiInstance, {
+            source: ownerPda,
+            destination: destinationPda,
+            authority: signer,
+            amount: BigInt(Math.round(balance.value.uiAmount * 1000000)),
+          }),
+        );
+
+        await txnBuilder
+          .sendAndConfirm(umiInstance, { send: { skipPreflight: false } })
+          .then(() => {
+            console.log('Token transfer completed successfully');
+          })
+          .catch((error) => {
+            throw new Error(`Token transfer failed: ${error.message}`);
+          });
+      }
+
+      // Wait for transactions to reflect
+      console.log('Waiting for transaction confirmation...');
+      await new Promise((resolve) => setTimeout(resolve, 10000));
+
+      // Close Token Account with retry mechanism
+      console.log('Initiating token account closure...');
+      const maxRetries = 3;
+      const baseDelay = 2000; // 2 seconds base delay
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          await closeToken(umiInstance, {
+            account: ownerPda,
+            destination: umiInstance.payer.publicKey,
+            owner: signer,
+          })
+            .sendAndConfirm(umiInstance)
+            .then(() => {
+              console.log('Token account closed successfully');
+            });
+          break; // Success, exit the retry loop
+        } catch (error) {
+          console.log(`Attempt ${attempt} failed: ${error.message}`);
+
+          if (attempt === maxRetries) {
+            throw new Error(
+              `Token account closure failed after ${maxRetries} attempts: ${error.message}`,
+            );
+          }
+
+          // Calculate delay with exponential backoff
+          const delay = baseDelay * Math.pow(2, attempt - 1);
+          console.log(`Retrying in ${delay / 1000} seconds...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+
+      return { success: true, message: 'Token account closed successfully' };
+    } catch (error) {
+      console.error('Error in closeTokenAccount:', error);
+      return {
+        success: false,
+        message: error.message || 'Failed to close token account',
+        error: error,
+      };
+    }
   }
 
   /*--------------------------------Umi Uplloader Arweave----------------------------------- */
