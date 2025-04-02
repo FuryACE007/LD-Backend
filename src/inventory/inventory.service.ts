@@ -676,20 +676,16 @@ export class InventoryService {
     const uploader = await getIrysUploader(mnemonic, umiInstance);
 
     try {
-      const uploadReceipt = await uploader.upload(JSON.stringify(metadata));
-      const uri = 'https://gateway.irys.xyz/' + uploadReceipt.id;
-      // console.log('TokenMetadata uploaded successfully', uri);
-      // try {
-      // let metaData = null;
-      //   const metadataResponse = await firstValueFrom(
-      //     this.httpService.get(uri),
-      //   );
-      //   metaData = metadataResponse.data;
+      // Add content type tags to specify JSON format
+      const tags = [
+        { name: 'Content-Type', value: 'application/json' },
+        { name: 'App-Name', value: 'Lucid-Supply-System' },
+      ];
 
-      //   console.log('Metadata fetched successfully', metaData);
-      // } catch (error) {
-      //   console.error(`Failed to fetch metadata for URI ${uri}: ${error}`);
-      // }
+      const uploadReceipt = await uploader.upload(JSON.stringify(metadata), {
+        tags,
+      });
+      const uri = 'https://gateway.irys.xyz/' + uploadReceipt.id;
       return uri;
     } catch (error) {
       console.error('Failed to upload metadata to Arweave:', error);
