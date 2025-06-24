@@ -7,7 +7,7 @@ set -e
 git pull origin main
 
 # Stop the existing containers and remove them along with their volumes
-docker compose down -v
+docker compose down
 
 # Remove any dangling images
 docker image prune -f
