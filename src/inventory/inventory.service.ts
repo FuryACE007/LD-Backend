@@ -362,11 +362,22 @@ export class InventoryService {
         amount: BigInt(rawAmount),
       }),
     );
-    txnBuilder
-      .sendAndConfirm(umiInstance, { send: { skipPreflight: false } })
-      .then(() => {
-        console.log('Token sent');
+
+    try {
+      await txnBuilder.sendAndConfirm(umiInstance, {
+        send: { skipPreflight: true },
       });
+      console.log('Token sent');
+    } catch (error) {
+      this.logger.error('Failed to send tokens:', error);
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to send tokens',
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   /*----------------------------------Call Print----------------------------------- */
