@@ -331,7 +331,7 @@ export class InventoryService {
     const destinationWallet = publicKey(destinationWalletAddress);
 
     const mint = publicKey(tokenMint);
-    const rawAmount = Math.round(amount * Math.pow(10, 6));
+    const rawAmount = Math.round(amount * Math.pow(10, 3));
 
     const ownerPda = findAssociatedTokenPda(umiInstance, {
       // Gets the ATA of the sender account
@@ -435,7 +435,7 @@ export class InventoryService {
             const destinationWallet = publicKey(lucidWalletAddress);
             const mint = publicKey(request.tokenMint);
 
-            const rawAmount = Math.round(request.amount * Math.pow(10, 6));
+            const rawAmount = Math.round(request.amount * Math.pow(10, 3));
 
             if (isNaN(rawAmount) || rawAmount <= 0) {
               throw new Error(
@@ -605,7 +605,7 @@ export class InventoryService {
             source: ownerPda,
             destination: destinationPda,
             authority: signer,
-            amount: BigInt(Math.round(balance.value.uiAmount * 1000000)),
+            amount: BigInt(Math.round(balance.value.uiAmount * 1000)),
           }),
         );
 
