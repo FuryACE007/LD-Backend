@@ -15,6 +15,10 @@ import { CallPrintDto } from './dto/call-print.dto';
 import { UploadMetadataDto } from './dto/upload-token-metadata.dto';
 import { Logger } from '@nestjs/common';
 import { BatchResponse } from './dto/batch-response.dto';
+import {
+  CreateIPLTTokenDto,
+  CreateIPLTTokenResponseDto,
+} from './dto/create-iplt-token.dto';
 
 @ApiTags('inventory')
 @Controller('inventory')
@@ -189,6 +193,31 @@ export class InventoryController {
     return this.inventoryService.uploadMetadata(
       uploadMetadataDto.mnemonic,
       uploadMetadataDto.metadata,
+    );
+  }
+
+  @Post('create-iplt-token')
+  @ApiOperation({
+    summary: 'Create a new IPLT token',
+    description:
+      'Creates a new token with the specified metadata and configuration.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Token created successfully.',
+    type: CreateIPLTTokenResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request or token creation failed.',
+  })
+  @ApiBody({ type: CreateIPLTTokenDto })
+  async createIPLTToken(
+    @Body() createTokenDto: CreateIPLTTokenDto,
+  ): Promise<CreateIPLTTokenResponseDto> {
+    return this.inventoryService.createIPLTToken(
+      createTokenDto.tokenData,
+      createTokenDto.oemMnemonic,
     );
   }
 }

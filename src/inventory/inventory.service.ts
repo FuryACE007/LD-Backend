@@ -10,6 +10,8 @@ import {
   fetchAllDigitalAssetByOwner,
   mintV1,
   mplTokenMetadata,
+  generateSigner,
+  percentAmount,
 } from '@metaplex-foundation/mpl-token-metadata';
 import {
   KeypairSigner,
@@ -23,7 +25,13 @@ import {
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 // import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
 import { generateMnemonic, mnemonicToSeed } from 'bip39';
-import { Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
+import {
+  Connection,
+  LAMPORTS_PER_SOL,
+  PublicKey,
+  Keypair,
+} from '@solana/web3.js';
+
 import {
   createTokenIfMissing,
   findAssociatedTokenPda,
@@ -31,7 +39,12 @@ import {
   transferTokens,
   closeToken,
 } from '@metaplex-foundation/mpl-toolbox';
-import { getAssociatedTokenAddress } from '@solana/spl-token';
+import {
+  getAssociatedTokenAddress,
+  TOKEN_PROGRAM_ID,
+  setAuthority,
+  AuthorityType,
+} from '@solana/spl-token';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { getIrysUploader } from 'src/utils/irysUploader.util';
@@ -39,6 +52,12 @@ import { mnemonicToWallet } from 'src/utils/mnemonic-to-wallet.util';
 import { HttpException, HttpStatus } from '@nestjs/common';
 
 import { BatchResponse } from './dto/batch-response.dto';
+import { CreateIPLTTokenResponseDto } from './dto/create-iplt-token.dto';
+import { createFungibleAsset } from '@metaplex-foundation/mpl-token-metadata';
+import {
+  LogicalTokenMetadata,
+  OnChainTokenMetadata,
+} from './types/token-metadata';
 
 @Injectable()
 export class InventoryService {
@@ -701,6 +720,178 @@ export class InventoryService {
     } catch (error) {
       console.error('Failed to upload metadata to Arweave:', error);
       throw new Error('Failed to upload metadata to Arweave');
+    }
+  }
+  // ----------------------------------Helper Functions for IPLT Token Creation-----------------------------------
+
+  private async revokeTokenAuthorities(
+    connection: Connection,
+    wallet: Keypair,
+    mintPublicKey: PublicKey,
+  ) {
+    try {
+      // Revoke Mint Authority
+      await setAuthority(
+        connection,
+        wallet, // payer
+        mintPublicKey, // mint address
+        wallet.publicKey, // current authority
+        AuthorityType.MintTokens,
+        null, // new authority (null to revoke)
+        [wallet], // signers
+      );
+      this.logger.log('Mint authority revoked.');
+
+      // Revoke Freeze Authority
+      await setAuthority(
+        connection,
+        wallet,
+        mintPublicKey,
+        wallet.publicKey,
+        AuthorityType.FreezeAccount,
+        null,
+        [wallet],
+      );
+      this.logger.log('Freeze authority revoked.');
+    } catch (error) {
+      this.logger.error('Error revoking authorities:', error);
+      throw error;
+    }
+  }
+
+  private async createTokenHandler(umi: Umi, metadata: LogicalTokenMetadata) {
+    const mint = generateSigner(umi);
+
+    try {
+      // Create metadata as JSON
+      const uploadableMetadata: JSON = JSON.parse(
+        JSON.stringify({
+          name: metadata.tokenName,
+          symbol: metadata.tokenSymbol,
+          description: metadata.tokenDescription,
+          properties: {
+            uom: metadata.uom,
+          },
+        }),
+      );
+
+      // Upload metadata to Irys
+      const uri = await this.uploadMetadata(
+        process.env.PAYER_MNEMONIC,
+        uploadableMetadata,
+      );
+
+      // Create on-chain metadata for the token
+      const onChainMetadata: OnChainTokenMetadata = {
+        name: metadata.tokenName,
+        symbol: metadata.tokenSymbol,
+        uri,
+      };
+
+      // Create the fungible token with on-chain metadata
+      await createFungibleAsset(umi, {
+        mint,
+        ...onChainMetadata,
+        sellerFeeBasisPoints: percentAmount(0),
+        isMutable: true,
+        isCollection: false,
+        authority: umi.identity,
+        decimals: 3,
+      }).sendAndConfirm(umi);
+
+      this.logger.log(
+        `${metadata.tokenName} created successfully: ${mint.publicKey}`,
+      );
+      this.logger.log(`Creator: ${umi.identity.publicKey.toString()}`);
+      this.logger.log(`Metadata URI: ${uri}`);
+
+      return mint;
+    } catch (error) {
+      this.logger.error('Error creating fungible asset:', error);
+      throw error;
+    }
+  }
+
+  private async mintHandler(umi: Umi, oemUmi: Umi, mint: any, amount: number) {
+    try {
+      this.logger.log('Minting IPLT tokens...');
+      this.logger.log(`Mint address: ${mint.publicKey.toString()}`);
+      this.logger.log(`Amount: ${amount}`);
+      this.logger.log(
+        `Lucid Wallet Addr: ${umi.identity.publicKey.toString()}`,
+      );
+
+      const result = await mintV1(umi, {
+        mint: mint.publicKey,
+        authority: umi.identity,
+        amount: amount * 1000,
+        tokenOwner: umi.identity.publicKey,
+        tokenStandard: TokenStandard.Fungible,
+      }).sendAndConfirm(umi, { send: { skipPreflight: true } });
+
+      // Transfer minted tokens to OEM
+      await this.sendTokens(
+        amount,
+        mint.publicKey.toString(),
+        process.env.PAYER_MNEMONIC,
+        oemUmi.identity.publicKey.toString(),
+      );
+
+      this.logger.log(
+        `IPLT Tokens sent to OEM: ${oemUmi.identity.publicKey.toString()}`,
+      );
+      return result;
+    } catch (error) {
+      this.logger.error('Error minting:', error);
+      throw error;
+    }
+  }
+
+  //-----------------------------------Create IPLT Token-----------------------------------
+  async createIPLTToken(
+    tokenData: string,
+    oemMnemonic: string,
+  ): Promise<CreateIPLTTokenResponseDto> {
+    try {
+      const oemSigner = await this.loadWallet(oemMnemonic);
+      const lucidSigner = await this.loadWallet(process.env.PAYER_MNEMONIC);
+
+      const umi = this.generateUmi(lucidSigner);
+      const oemUmi = this.generateUmi(oemSigner);
+
+      // Create the token
+      const mint = await this.createTokenHandler(
+        umi,
+        tokenData, // URI for the token metadata
+      );
+
+      // Mint the tokens
+      await this.mintHandler(umi, oemUmi, mint, tokenData['Max Supply'].value);
+
+      // Convert UMI wallet to Solana wallet for SPL token operations
+      const connection = new Connection(process.env.RPC_ENDPOINT);
+      const walletKeyPair = Keypair.fromSecretKey(lucidSigner.secretKey);
+      const mintPublicKey = new PublicKey(mint.publicKey);
+
+      // Revoke authorities
+      await this.revokeTokenAuthorities(
+        connection,
+        walletKeyPair,
+        mintPublicKey,
+      );
+
+      return {
+        success: true,
+        message: 'Token created successfully',
+        mintAddress: mint.publicKey.toString(),
+      };
+    } catch (error) {
+      this.logger.error('Error creating IPLT token:', error);
+      return {
+        success: false,
+        message: 'Failed to create token',
+        error: error.message,
+      };
     }
   }
 }
