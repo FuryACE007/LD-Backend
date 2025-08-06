@@ -1,22 +1,54 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { IsString, IsNumber, IsNotEmpty } from 'class-validator';
 
 export class CreateIPLTTokenDto {
   @ApiProperty({
-    description: 'Token metadata and configuration',
-    example: {
-      'Max Supply': { value: 1000000 },
-      name: 'Test Token',
-      symbol: 'TEST',
-      description: 'Test token description',
-    },
+    description: 'Token name',
+    example: 'Test Token',
   })
-  tokenData: string;
+  @IsString()
+  @IsNotEmpty()
+  tokenName: string;
 
   @ApiProperty({
-    description: 'OEM wallet mnemonic',
-    example: { mnemonics: 'your mnemonic phrase here' },
+    description: 'Token symbol',
+    example: 'TEST',
   })
-  oemMnemonic: string;
+  @IsString()
+  @IsNotEmpty()
+  tokenSymbol: string;
+
+  @ApiProperty({
+    description: 'Unit of measurement',
+    example: 'units',
+  })
+  @IsString()
+  @IsNotEmpty()
+  uom: string;
+
+  @ApiProperty({
+    description: 'Maximum token supply',
+    example: 1000000,
+  })
+  @IsNumber()
+  @IsNotEmpty()
+  maxSupply: number;
+
+  @ApiProperty({
+    description: 'Token description',
+    example: 'Test token description',
+  })
+  @IsString()
+  @IsNotEmpty()
+  tokenDescription: string;
+
+  @ApiProperty({
+    description: 'OEM wallet public key address',
+    example: 'EmLhXf5u1JBGwpbHAQZhBnYmgmLax4WBxPBxvVomDSF1',
+  })
+  @IsString()
+  @IsNotEmpty()
+  oemWalletAddress: string;
 }
 
 export class CreateIPLTTokenResponseDto {

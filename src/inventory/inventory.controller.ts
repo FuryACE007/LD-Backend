@@ -19,6 +19,8 @@ import {
   CreateIPLTTokenDto,
   CreateIPLTTokenResponseDto,
 } from './dto/create-iplt-token.dto';
+import { LogicalTokenMetadata } from './types/token-metadata';
+import { string } from '@metaplex-foundation/umi/serializers';
 
 @ApiTags('inventory')
 @Controller('inventory')
@@ -30,10 +32,14 @@ export class InventoryController {
   /*------------------ Get the wallet balance------------------------*/
 
   @Get('wallet-balance/:pubkey')
-  @ApiOperation({ summary: 'Retrieve the balance of a wallet' })
+  @ApiOperation({
+    summary: 'Retrieve the balance of a wallet',
+    description: 'Returns the SOL balance for the given wallet public key.',
+  })
   @ApiResponse({
     status: 200,
     description: 'The balance of the wallet in SOL.',
+    schema: { type: 'number', example: 1.234 },
   })
   async getWalletBalance(@Param('pubkey') pubkey: string): Promise<number> {
     return this.inventoryService.getWalletBalance(pubkey);
@@ -42,12 +48,19 @@ export class InventoryController {
   /* ----------------- Get the data of tokens in the wallet --------------- */
 
   @Get('token-data/:walletAddress')
-  @ApiOperation({ summary: 'Retrieve token data for a wallet' })
+  @ApiOperation({
+    summary: 'Retrieve token data for a wallet',
+    description: 'Returns all token data for the specified wallet address.',
+  })
   @ApiParam({
     name: 'walletAddress',
     description: 'The wallet address to retrieve token data for.',
   })
-  @ApiResponse({ status: 200, description: 'The token data for the wallet.' })
+  @ApiResponse({
+    status: 200,
+    description: 'The token data for the wallet.',
+    schema: { type: 'object' },
+  })
   async getTokenData(
     @Param('walletAddress') walletAddress: string,
   ): Promise<any> {
@@ -56,8 +69,16 @@ export class InventoryController {
 
   /*---------- Used to create a wallet and generate a new instance of OEM with the given signer-------- */
   @Post('create-inventory')
-  @ApiOperation({ summary: 'Create inventory wallet' })
-  @ApiResponse({ status: 200, description: 'The created inventory wallet.' })
+  @ApiOperation({
+    summary: 'Create inventory wallet',
+    description:
+      'Creates a new inventory wallet and returns its mnemonic and keypair.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'The created inventory wallet.',
+    schema: { type: 'object' },
+  })
   async createInventoryWallet(): Promise<JSON> {
     // returns a promise
     return this.inventoryService.createInventoryWallet(); // returns a promise containing {mnemonic, keypair}
@@ -66,8 +87,15 @@ export class InventoryController {
   /*------------Create and fund the consumable wallets-----------------------------------------*/
 
   @Post('create-consumable-wallets')
-  @ApiOperation({ summary: 'Create consumable wallets' })
-  @ApiResponse({ status: 200, description: 'The created consumable wallets.' })
+  @ApiOperation({
+    summary: 'Create consumable wallets',
+    description: 'Creates multiple consumable wallets and funds them.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'The created consumable wallets.',
+    schema: { type: 'array', items: { type: 'string' } },
+  })
   @ApiBody({
     description: 'Data required to create consumable wallets.',
     type: CreateWalletsDto,
@@ -85,8 +113,16 @@ export class InventoryController {
   /* ============================Login using mnemoics and store signer on the local storage=============================== */
 
   @Post('login-inventory')
-  @ApiOperation({ summary: 'Login to inventory' })
-  @ApiResponse({ status: 200, description: 'The publickey of the wallet.' })
+  @ApiOperation({
+    summary: 'Login to inventory',
+    description:
+      'Logs in to the inventory using a mnemonic and returns the public key.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'The publickey of the wallet.',
+    schema: { type: 'string' },
+  })
   @ApiBody({
     description: 'Data required to login to inventory.',
     type: LoginInventoryDto,
@@ -107,7 +143,7 @@ export class InventoryController {
   @ApiResponse({
     status: 201,
     description: 'The operation was successful.',
-    type: String, // Adjust the type according to the actual return type of your method
+    schema: { type: 'string' },
   })
   @ApiResponse({
     status: 400,
@@ -131,13 +167,12 @@ export class InventoryController {
   @ApiOperation({
     summary: 'Process multiple token print requests in batch',
     description:
-      'Processes multiple token print requests in a single transaction. Automatically aggregates amounts for the same token mint to optimize transaction efficiency. Each request specifies a token mint and the amount to be printed.',
+      'Processes multiple token print requests in a single transaction.',
   })
   @ApiResponse({
     status: 201,
     description:
       'The print requests were processed successfully. Returns the transaction signature.',
-    type: Object,
     schema: {
       properties: {
         success: { type: 'boolean' },
@@ -166,7 +201,7 @@ export class InventoryController {
   @ApiResponse({
     status: 201,
     description: 'The operation was successful.',
-    type: String, // Adjust the type according to the actual return type of your method
+    schema: { type: 'string' },
   })
   @ApiResponse({
     status: 400,
@@ -185,9 +220,19 @@ export class InventoryController {
   }
 
   @Post('upload-metadata')
-  @ApiOperation({ summary: 'Upload metadata to Arweave' })
-  @ApiResponse({ status: 200, description: 'Metadata uploaded successfully.' })
-  @ApiResponse({ status: 400, description: 'Bad Request.' })
+  @ApiOperation({
+    summary: 'Upload metadata to Arweave',
+    description: 'Uploads metadata to Arweave/Irys and returns the URI.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Metadata uploaded successfully.',
+    schema: { type: 'string' },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request.',
+  })
   @ApiBody({ type: UploadMetadataDto })
   async uploadMetadata(@Body() uploadMetadataDto: UploadMetadataDto) {
     return this.inventoryService.uploadMetadata(
@@ -200,7 +245,7 @@ export class InventoryController {
   @ApiOperation({
     summary: 'Create a new IPLT token',
     description:
-      'Creates a new token with the specified metadata and configuration.',
+      'Creates a new token with the specified metadata and configuration, mints supply, and transfers to OEM wallet.',
   })
   @ApiResponse({
     status: 201,
@@ -215,9 +260,36 @@ export class InventoryController {
   async createIPLTToken(
     @Body() createTokenDto: CreateIPLTTokenDto,
   ): Promise<CreateIPLTTokenResponseDto> {
+    const tokenMetadata: LogicalTokenMetadata = {
+      tokenName: createTokenDto.tokenName,
+      tokenSymbol: createTokenDto.tokenSymbol,
+      uom: createTokenDto.uom,
+      maxSupply: createTokenDto.maxSupply,
+      tokenDescription: createTokenDto.tokenDescription,
+    };
     return this.inventoryService.createIPLTToken(
-      createTokenDto.tokenData,
-      createTokenDto.oemMnemonic,
+      JSON.stringify(tokenMetadata),
+      createTokenDto.oemWalletAddress,
     );
+  }
+
+  @Get('token-metadata/:mintAddress')
+  @ApiOperation({
+    summary: 'Get token metadata',
+    description: 'Retrieves the on-chain metadata for a specific token.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Token metadata retrieved successfully.',
+    type: string,
+  })
+  @ApiParam({
+    name: 'mintAddress',
+    description: 'The mint address of the token',
+  })
+  async getTokenMetadata(
+    @Param('mintAddress') mintAddress: string,
+  ): Promise<string> {
+    return this.inventoryService.getTokenData(mintAddress);
   }
 }

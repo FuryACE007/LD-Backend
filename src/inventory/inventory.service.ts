@@ -10,8 +10,6 @@ import {
   fetchAllDigitalAssetByOwner,
   mintV1,
   mplTokenMetadata,
-  generateSigner,
-  percentAmount,
 } from '@metaplex-foundation/mpl-token-metadata';
 import {
   KeypairSigner,
@@ -21,6 +19,8 @@ import {
   publicKey,
   signerIdentity,
   transactionBuilder,
+  generateSigner,
+  percentAmount,
 } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 // import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
@@ -41,7 +41,6 @@ import {
 } from '@metaplex-foundation/mpl-toolbox';
 import {
   getAssociatedTokenAddress,
-  TOKEN_PROGRAM_ID,
   setAuthority,
   AuthorityType,
 } from '@solana/spl-token';
@@ -99,6 +98,11 @@ export class InventoryService {
     return Math.ceil(lamports);
   }
 
+  /**
+   * Loads a wallet from a mnemonic phrase.
+   * @param mnemonic - The mnemonic phrase.
+   * @returns The loaded KeypairSigner.
+   */
   async loadWallet(mnemonic: string): Promise<KeypairSigner> {
     // Create seed phrase from mnemonic
     const seed = await mnemonicToSeed(mnemonic);
@@ -110,8 +114,6 @@ export class InventoryService {
 
     return signer;
   }
-
-  // ----------------------------------------------------------------
 
   /**
    * Creates an inventory wallet.
@@ -137,10 +139,8 @@ export class InventoryService {
     return JSON.parse(JSON.stringify(wallet));
   }
 
-  /*-----------------------Create Consumable Wallets-----------------------------*/
   /**
    * Creates consumable wallets.
-   *
    * @param numOfWallets The number of wallets to create.
    * @param signer The KeypairSigner retrieved from local storage and sent with the request.
    * @param tokensPerWallet The number of tokens per wallet.
@@ -241,7 +241,6 @@ export class InventoryService {
   /* ============================Login using mnemoics and store signer on the local storage=============================== */
   /**
    * Logs in to the inventory using the provided mnemonic.
-   *
    * @param mnemonic - The mnemonic used to generate the seed phrase.
    * @returns A Promise that resolves to a KeypairSigner object.
    */
@@ -332,7 +331,6 @@ export class InventoryService {
    * @param amount - The amount of tokens to send.
    * @param tokenMint - The token mint address.
    * @param mnemonics - The mnemonic for the owner's wallet.
-   * @param ownerWalletAddress - The address of the owner's wallet.
    * @param destinationWalletAddress - The address of the destination wallet.
    */
   async sendTokens(
@@ -399,7 +397,6 @@ export class InventoryService {
     }
   }
 
-  /*----------------------------------Call Print----------------------------------- */
   /**
    * Calls the print function to mint tokens.
    * @param amount - The amount of tokens to mint.
@@ -566,7 +563,13 @@ export class InventoryService {
     }
   }
 
-  /*---------------------------------Close Token Account----------------------------------- */
+  /**
+   * Closes a token account with 0 token balance.
+   * @param walletAddress - The wallet address.
+   * @param tokenMint - The token mint address.
+   * @param mnemonics - The mnemonic for the wallet.
+   * @returns Success or error message.
+   */
   async closeTokenAccount(
     walletAddress: string,
     tokenMint: string,
@@ -697,7 +700,12 @@ export class InventoryService {
     }
   }
 
-  /*--------------------------------Umi Uplloader Arweave----------------------------------- */
+  /**
+   * Uploads metadata to Arweave/Irys.
+   * @param mnemonic - The mnemonic for the wallet.
+   * @param metadata - The metadata JSON object.
+   * @returns The URI of the uploaded metadata.
+   */
   async uploadMetadata(mnemonic: string, metadata: JSON) {
     const signer = await (
       await mnemonicToWallet(mnemonic, this.umi)
@@ -722,8 +730,13 @@ export class InventoryService {
       throw new Error('Failed to upload metadata to Arweave');
     }
   }
-  // ----------------------------------Helper Functions for IPLT Token Creation-----------------------------------
 
+  /**
+   * Revokes mint and freeze authorities for a token mint.
+   * @param connection - Solana connection.
+   * @param wallet - Keypair of the authority.
+   * @param mintPublicKey - Public key of the mint.
+   */
   private async revokeTokenAuthorities(
     connection: Connection,
     wallet: Keypair,
@@ -759,6 +772,12 @@ export class InventoryService {
     }
   }
 
+  /**
+   * Creates a fungible token and uploads metadata.
+   * @param umi - Umi instance.
+   * @param metadata - LogicalTokenMetadata object.
+   * @returns The mint signer.
+   */
   private async createTokenHandler(umi: Umi, metadata: LogicalTokenMetadata) {
     const mint = generateSigner(umi);
 
@@ -812,61 +831,50 @@ export class InventoryService {
     }
   }
 
-  private async mintHandler(umi: Umi, oemUmi: Umi, mint: any, amount: number) {
-    try {
-      this.logger.log('Minting IPLT tokens...');
-      this.logger.log(`Mint address: ${mint.publicKey.toString()}`);
-      this.logger.log(`Amount: ${amount}`);
-      this.logger.log(
-        `Lucid Wallet Addr: ${umi.identity.publicKey.toString()}`,
-      );
-
-      const result = await mintV1(umi, {
-        mint: mint.publicKey,
-        authority: umi.identity,
-        amount: amount * 1000,
-        tokenOwner: umi.identity.publicKey,
-        tokenStandard: TokenStandard.Fungible,
-      }).sendAndConfirm(umi, { send: { skipPreflight: true } });
-
-      // Transfer minted tokens to OEM
-      await this.sendTokens(
-        amount,
-        mint.publicKey.toString(),
-        process.env.PAYER_MNEMONIC,
-        oemUmi.identity.publicKey.toString(),
-      );
-
-      this.logger.log(
-        `IPLT Tokens sent to OEM: ${oemUmi.identity.publicKey.toString()}`,
-      );
-      return result;
-    } catch (error) {
-      this.logger.error('Error minting:', error);
-      throw error;
-    }
-  }
-
-  //-----------------------------------Create IPLT Token-----------------------------------
+  /**
+   * Creates an IPLT token, mints supply, and transfers to OEM.
+   * @param tokenData - LogicalTokenMetadata as JSON string.
+   * @param oemWalletAddress - OEM wallet public key address.
+   * @returns Result of the token creation process.
+   */
   async createIPLTToken(
     tokenData: string,
-    oemMnemonic: string,
+    oemWalletAddress: string,
   ): Promise<CreateIPLTTokenResponseDto> {
     try {
-      const oemSigner = await this.loadWallet(oemMnemonic);
-      const lucidSigner = await this.loadWallet(process.env.PAYER_MNEMONIC);
+      // Parse the token data string into TokenMetadata object
+      let parsedTokenData: LogicalTokenMetadata;
+      try {
+        parsedTokenData = JSON.parse(tokenData);
+      } catch (error) {
+        throw new Error(
+          'Invalid token data format. Must be a valid JSON string',
+        );
+      }
 
+      // Validate required fields
+      if (
+        !parsedTokenData['Max Supply']?.value ||
+        !parsedTokenData.tokenName ||
+        !parsedTokenData.tokenSymbol ||
+        !parsedTokenData.tokenDescription
+      ) {
+        throw new Error('Missing required token metadata fields');
+      }
+
+      const lucidSigner = await this.loadWallet(process.env.PAYER_MNEMONIC);
       const umi = this.generateUmi(lucidSigner);
-      const oemUmi = this.generateUmi(oemSigner);
 
       // Create the token
-      const mint = await this.createTokenHandler(
-        umi,
-        tokenData, // URI for the token metadata
-      );
+      const mint = await this.createTokenHandler(umi, parsedTokenData);
 
-      // Mint the tokens
-      await this.mintHandler(umi, oemUmi, mint, tokenData['Max Supply'].value);
+      // Mint the tokens and transfer to OEM
+      await this.mintHandler(
+        umi,
+        mint,
+        parsedTokenData['Max Supply'].value,
+        oemWalletAddress,
+      );
 
       // Convert UMI wallet to Solana wallet for SPL token operations
       const connection = new Connection(process.env.RPC_ENDPOINT);
@@ -892,6 +900,52 @@ export class InventoryService {
         message: 'Failed to create token',
         error: error.message,
       };
+    }
+  }
+
+  /**
+   * Mints tokens and transfers them to the OEM.
+   * @param umi - Umi instance.
+   * @param mint - Mint signer.
+   * @param amount - Amount to mint.
+   * @param oemWalletAddress - OEM wallet address to receive tokens.
+   * @returns The result of the mint transaction.
+   */
+  private async mintHandler(
+    umi: Umi,
+    mint: any,
+    amount: number,
+    oemWalletAddress: string,
+  ) {
+    try {
+      this.logger.log('Minting IPLT tokens...');
+      this.logger.log(`Mint address: ${mint.publicKey.toString()}`);
+      this.logger.log(`Amount: ${amount}`);
+      this.logger.log(
+        `Lucid Wallet Addr: ${umi.identity.publicKey.toString()}`,
+      );
+
+      const result = await mintV1(umi, {
+        mint: mint.publicKey,
+        authority: umi.identity,
+        amount: amount * 1000,
+        tokenOwner: umi.identity.publicKey,
+        tokenStandard: TokenStandard.Fungible,
+      }).sendAndConfirm(umi, { send: { skipPreflight: true } });
+
+      // Transfer minted tokens to OEM
+      await this.sendTokens(
+        amount,
+        mint.publicKey.toString(),
+        process.env.PAYER_MNEMONIC,
+        oemWalletAddress,
+      );
+
+      this.logger.log(`IPLT Tokens sent to OEM: ${oemWalletAddress}`);
+      return result;
+    } catch (error) {
+      this.logger.error('Error minting:', error);
+      throw error;
     }
   }
 }
