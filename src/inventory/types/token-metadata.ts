@@ -1,9 +1,9 @@
 export interface LogicalTokenMetadata {
   tokenName: string;
   tokenSymbol: string;
+  tokenDescription: string;
   uom: string;
   maxSupply: number;
-  tokenDescription: string;
 }
 
 export interface OnChainTokenMetadata {
