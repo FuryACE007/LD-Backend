@@ -836,11 +836,11 @@ export class InventoryService {
         decimals: 3,
       }).sendAndConfirm(umi, {
         send: {
-          skipPreflight: true,
+          skipPreflight: false,
           maxRetries: 3,
         },
         confirm: {
-          commitment: 'confirmed',
+          commitment: 'finalized',
           strategy: {
             type: 'blockhash',
             blockhash: latestBlockhash.blockhash,
