@@ -21,6 +21,8 @@ import {
 } from './dto/create-iplt-token.dto';
 import { LogicalTokenMetadata } from './types/token-metadata';
 import { string } from '@metaplex-foundation/umi/serializers';
+import { CreateCandyMachineDto } from './dto/create-candy-machine.dto';
+import { CreateCandyMachineResponseDto } from './dto/create-candy-machine.dto';
 
 @ApiTags('inventory')
 @Controller('inventory')
@@ -291,5 +293,27 @@ export class InventoryController {
     @Param('mintAddress') mintAddress: string,
   ): Promise<string> {
     return this.inventoryService.getTokenData(mintAddress);
+  }
+
+  @Post('create-candy-machine')
+  @ApiOperation({
+    summary: 'Create a new candy machine with candy guard',
+    description:
+      'Creates a candy machine with allowlist guard and collection NFT',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Candy machine created successfully',
+    type: CreateCandyMachineResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request or candy machine creation failed',
+  })
+  @ApiBody({ type: CreateCandyMachineDto })
+  async createCandyMachine(
+    @Body() createCandyMachineDto: CreateCandyMachineDto,
+  ): Promise<CreateCandyMachineResponseDto> {
+    return this.inventoryService.createCandyMachine(createCandyMachineDto);
   }
 }

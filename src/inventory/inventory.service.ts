@@ -10,7 +10,12 @@ import {
   fetchAllDigitalAssetByOwner,
   mintV1,
   mplTokenMetadata,
+  createNft,
 } from '@metaplex-foundation/mpl-token-metadata';
+import {
+  create,
+  mplCandyMachine,
+} from '@metaplex-foundation/mpl-candy-machine';
 import {
   KeypairSigner,
   SolAmount,
@@ -21,6 +26,7 @@ import {
   transactionBuilder,
   generateSigner,
   percentAmount,
+  some,
 } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 // import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
@@ -52,6 +58,10 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 
 import { BatchResponse } from './dto/batch-response.dto';
 import { CreateIPLTTokenResponseDto } from './dto/create-iplt-token.dto';
+import {
+  CreateCandyMachineResponseDto,
+  CreateCandyMachineDto,
+} from './dto/create-candy-machine.dto';
 import { createFungibleAsset } from '@metaplex-foundation/mpl-token-metadata';
 import {
   LogicalTokenMetadata,
@@ -976,6 +986,127 @@ export class InventoryService {
       return {
         success: false,
         message: 'Failed to create token',
+        error: error.message,
+      };
+    }
+  }
+
+  async createCandyMachine(
+    dto: CreateCandyMachineDto,
+  ): Promise<CreateCandyMachineResponseDto> {
+    try {
+      this.logger.log('Starting candy machine creation process...');
+
+      // Load the admin wallet that will pay for and manage the candy machine
+      const adminSigner = await this.loadWallet(process.env.PAYER_MNEMONIC);
+      const umi = this.generateUmi(adminSigner);
+      umi.use(mplCandyMachine());
+
+      this.logger.log('Creating collection NFT...');
+
+      // Create the Collection NFT
+      const collectionUpdateAuthority = generateSigner(umi);
+      const collectionMint = generateSigner(umi);
+
+      // Create collection metadata
+      const collectionMetadata = {
+        name: dto.collectionName,
+        symbol: dto.collectionSymbol,
+        description: dto.collectionDescription,
+        seller_fee_basis_points: 0,
+        image: '', // Can be added as param if needed
+        properties: {
+          files: [],
+          category: 'image',
+          creators: [
+            {
+              address: umi.identity.publicKey.toString(),
+              share: 100,
+            },
+          ],
+        },
+      };
+
+      // Upload collection metadata
+      const collectionUri = await this.uploadMetadata(
+        process.env.PAYER_MNEMONIC,
+        JSON.parse(JSON.stringify(collectionMetadata)),
+      );
+      this.logger.log(`Collection metadata uploaded to: ${collectionUri}`);
+
+      // Create the collection NFT
+      await createNft(umi, {
+        mint: collectionMint,
+        authority: collectionUpdateAuthority,
+        name: dto.collectionName,
+        symbol: dto.collectionSymbol,
+        uri: collectionUri,
+        sellerFeeBasisPoints: percentAmount(0),
+        isCollection: true,
+        collectionDetails: {
+          __kind: 'V1',
+          size: dto.maxSupply,
+        },
+      }).sendAndConfirm(umi);
+
+      this.logger.log(
+        `Collection NFT created with mint: ${collectionMint.publicKey}`,
+      );
+
+      // Create the Candy Machine
+      this.logger.log('Creating candy machine...');
+      const candyMachine = generateSigner(umi);
+
+      // log dto.maxSupply , dto.namePrefix, dto.baseUri
+      this.logger.log(`Candy Machine Config: 
+        Max Supply: ${dto.maxSupply},
+        Name Prefix: ${dto.namePrefix},
+        Base URI: ${dto.baseUri},
+        Collection Name: ${dto.collectionName},
+        Collection Symbol: ${dto.collectionSymbol},
+        Collection URI: ${collectionUri},
+        Collection Description: ${dto.collectionDescription}`);
+
+      // Create the candy machine with default configurations
+      const builder = await create(umi, {
+        candyMachine,
+        collectionMint: collectionMint.publicKey,
+        collectionUpdateAuthority: umi.identity,
+        tokenStandard: TokenStandard.NonFungible,
+        sellerFeeBasisPoints: percentAmount(0),
+        itemsAvailable: dto.maxSupply,
+        creators: [
+          {
+            address: umi.identity.publicKey,
+            verified: true,
+            percentageShare: 100,
+          },
+        ],
+        configLineSettings: some({
+          prefixName: dto.namePrefix,
+          nameLength: 16,
+          prefixUri: dto.baseUri,
+          uriLength: 100,
+          isSequential: true,
+        }),
+      });
+      await builder.sendAndConfirm(umi);
+
+      this.logger.log(`Candy machine created: ${candyMachine.publicKey}`);
+
+      return {
+        success: true,
+        message: 'Candy machine created successfully',
+        candyMachineAddress: candyMachine.publicKey.toString(),
+        collectionMintAddress: collectionMint.publicKey.toString(),
+        collectionUpdateAuthority:
+          collectionUpdateAuthority.publicKey.toString(),
+      };
+    } catch (error) {
+      this.logger.error('Failed to create candy machine:', error);
+      return {
+        success: false,
+        message: 'Failed to create candy machine',
         error: error.message,
       };
     }
