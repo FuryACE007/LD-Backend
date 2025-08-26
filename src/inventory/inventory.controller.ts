@@ -20,7 +20,7 @@ import {
   CreateIPLTTokenResponseDto,
 } from './dto/create-iplt-token.dto';
 import { LogicalTokenMetadata } from './types/token-metadata';
-import { string } from '@metaplex-foundation/umi/serializers';
+// import { string } from '@metaplex-foundation/umi/serializers';
 import { CreateCandyMachineDto } from './dto/create-candy-machine.dto';
 import { CreateCandyMachineResponseDto } from './dto/create-candy-machine.dto';
 
@@ -275,25 +275,25 @@ export class InventoryController {
     );
   }
 
-  @Get('token-metadata/:mintAddress')
-  @ApiOperation({
-    summary: 'Get token metadata',
-    description: 'Retrieves the on-chain metadata for a specific token.',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Token metadata retrieved successfully.',
-    type: string,
-  })
-  @ApiParam({
-    name: 'mintAddress',
-    description: 'The mint address of the token',
-  })
-  async getTokenMetadata(
-    @Param('mintAddress') mintAddress: string,
-  ): Promise<string> {
-    return this.inventoryService.getTokenData(mintAddress);
-  }
+  // @Get('token-metadata/:mintAddress')
+  // @ApiOperation({
+  //   summary: 'Get token metadata',
+  //   description: 'Retrieves the on-chain metadata for a specific token.',
+  // })
+  // @ApiResponse({
+  //   status: 200,
+  //   description: 'Token metadata retrieved successfully.',
+  //   type: string,
+  // })
+  // @ApiParam({
+  //   name: 'mintAddress',
+  //   description: 'The mint address of the token',
+  // })
+  // async getTokenMetadata(
+  //   @Param('mintAddress') mintAddress: string,
+  // ): Promise<string> {
+  //   return this.inventoryService.getTokenData(mintAddress);
+  // }
 
   @Post('create-candy-machine')
   @ApiOperation({
