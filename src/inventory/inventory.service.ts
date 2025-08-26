@@ -999,6 +999,34 @@ export class InventoryService {
     try {
       this.logger.log('Starting candy machine creation process...');
 
+      if (dto.namePrefix.length > 32) {
+        throw new Error('Name prefix exceeds maximum length of 32 characters');
+      }
+
+      if (dto.collectionName.length > 32) {
+        throw new Error(
+          'Collection name exceeds maximum length of 32 characters',
+        );
+      }
+
+      if (dto.collectionSymbol.length > 10) {
+        throw new Error(
+          'Collection symbol exceeds maximum length of 10 characters',
+        );
+      }
+
+      if (dto.collectionDescription.length > 200) {
+        throw new Error(
+          'Collection description exceeds maximum length of 200 characters',
+        );
+      }
+
+      if (dto.maxSupply <= 0 || dto.maxSupply > 10000) {
+        throw new Error('Max supply must be between 1 and 10,000');
+      }
+
+      this.logger.log('Validations passed. Proceeding with creation...');
+
       // Load the admin wallet that will pay for and manage the candy machine
       const adminSigner = await this.loadWallet(process.env.PAYER_MNEMONIC);
       const umi = this.generateUmi(adminSigner);
