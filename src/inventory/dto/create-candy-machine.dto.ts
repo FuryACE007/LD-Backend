@@ -50,18 +50,8 @@ export class CreateCandyMachineDto {
   maxSupply: number;
 
   @ApiProperty({
-    description: 'Base URI for the metadata (Arweave/IPFS)',
-    example: 'https://gateway.irys.xyz/',
-    pattern: '^https?://',
-  })
-  @IsString()
-  @IsNotEmpty()
-  @IsUrl()
-  baseUri: string;
-
-  @ApiProperty({
     description: 'Name prefix for NFTs. Use $ID+1$ for sequential numbering',
-    example: 'SPIRIT70 #$ID+1$',
+    example: 'SPIRIT70',
     maxLength: 16,
   })
   @IsString()

@@ -74,6 +74,8 @@ export class InventoryService {
 
   private readonly logger = new Logger(InventoryService.name);
 
+  private readonly IRYS_BASE_URI = 'https://gateway.irys.xyz/';
+
   constructor(private httpService: HttpService) {
     this.umi = createUmi(process.env.RPC_ENDPOINT);
     this.umi.use(mplTokenMetadata());
@@ -1005,8 +1007,10 @@ export class InventoryService {
       this.logger.log('Creating collection NFT...');
 
       // Create the Collection NFT
-      const collectionUpdateAuthority = generateSigner(umi);
       const collectionMint = generateSigner(umi);
+
+      // The authority for the collection NFT and collection update authority
+      const authority = umi.identity;
 
       // Create collection metadata
       const collectionMetadata = {
@@ -1020,7 +1024,7 @@ export class InventoryService {
           category: 'image',
           creators: [
             {
-              address: umi.identity.publicKey.toString(),
+              address: authority.publicKey.toString(),
               share: 100,
             },
           ],
@@ -1037,7 +1041,7 @@ export class InventoryService {
       // Create the collection NFT
       await createNft(umi, {
         mint: collectionMint,
-        authority: collectionUpdateAuthority,
+        authority: authority,
         name: dto.collectionName,
         symbol: dto.collectionSymbol,
         uri: collectionUri,
@@ -1052,7 +1056,8 @@ export class InventoryService {
       this.logger.log(
         `Collection NFT created with mint: ${collectionMint.publicKey}`,
       );
-
+      // Added this delay to allow the blockchain to settle
+      await new Promise((resolve) => setTimeout(resolve, 10000));
       // Create the Candy Machine
       this.logger.log('Creating candy machine...');
       const candyMachine = generateSigner(umi);
@@ -1061,7 +1066,7 @@ export class InventoryService {
       this.logger.log(`Candy Machine Config: 
         Max Supply: ${dto.maxSupply},
         Name Prefix: ${dto.namePrefix},
-        Base URI: ${dto.baseUri},
+        Base URI: ${this.IRYS_BASE_URI},
         Collection Name: ${dto.collectionName},
         Collection Symbol: ${dto.collectionSymbol},
         Collection URI: ${collectionUri},
@@ -1071,7 +1076,7 @@ export class InventoryService {
       const builder = await create(umi, {
         candyMachine,
         collectionMint: collectionMint.publicKey,
-        collectionUpdateAuthority: umi.identity,
+        collectionUpdateAuthority: authority,
         tokenStandard: TokenStandard.NonFungible,
         sellerFeeBasisPoints: percentAmount(0),
         itemsAvailable: dto.maxSupply,
@@ -1083,9 +1088,9 @@ export class InventoryService {
           },
         ],
         configLineSettings: some({
-          prefixName: dto.namePrefix,
-          nameLength: 16,
-          prefixUri: dto.baseUri,
+          prefixName: `${dto.namePrefix} #$ID+1$`,
+          nameLength: 0,
+          prefixUri: this.IRYS_BASE_URI,
           uriLength: 100,
           isSequential: true,
         }),
@@ -1099,8 +1104,7 @@ export class InventoryService {
         message: 'Candy machine created successfully',
         candyMachineAddress: candyMachine.publicKey.toString(),
         collectionMintAddress: collectionMint.publicKey.toString(),
-        collectionUpdateAuthority:
-          collectionUpdateAuthority.publicKey.toString(),
+        collectionUpdateAuthority: authority.publicKey.toString(),
       };
     } catch (error) {
       this.logger.error('Failed to create candy machine:', error);
