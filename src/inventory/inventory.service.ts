@@ -1143,4 +1143,8 @@ export class InventoryService {
       };
     }
   }
+
+  // TODO: Create mint function to mint from candy machine - QR handled on frontend
+
+  // TODO: Create Function to delete the candy machine
 }

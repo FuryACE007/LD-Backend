@@ -5,7 +5,6 @@ import {
   IsNotEmpty,
   Min,
   MaxLength,
-  IsUrl,
 } from 'class-validator';
 
 export class CreateCandyMachineDto {

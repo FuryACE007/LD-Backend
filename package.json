@@ -22,6 +22,7 @@
   "dependencies": {
     "@irys/upload": "^0.0.7",
     "@irys/upload-solana": "^0.0.8",
+    "@metaplex-foundation/mpl-candy-machine": "^6.1.0",
     "@metaplex-foundation/mpl-token-metadata": "^3.1.2",
     "@metaplex-foundation/mpl-toolbox": "^0.9.1",
     "@metaplex-foundation/umi": "^0.8.10",
@@ -36,15 +37,19 @@
     "@nestjs/mapped-types": "*",
     "@nestjs/platform-express": "^10.0.0",
     "@nestjs/swagger": "^7.3.1",
+    "@nestjs/typeorm": "^11.0.0",
     "@solana/spl-token": "^0.3.9",
-    "@solana/web3.js": "^1.87.6",
+    "@solana/web3.js": "^1.98.4",
     "axios": "^1.6.5",
     "bip39": "^3.1.0",
     "bs58": "^6.0.0",
     "class-validator": "^0.14.2",
+    "pg": "^8.16.3",
+    "qrcode": "^1.5.4",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.1",
-    "swagger-ui-express": "^5.0.0"
+    "swagger-ui-express": "^5.0.0",
+    "typeorm": "^0.3.26"
   },
   "devDependencies": {
     "@nestjs/schematics": "^10.0.0",
@@ -52,6 +57,7 @@
     "@types/express": "^4.17.17",
     "@types/jest": "^29.5.2",
     "@types/node": "^20.3.1",
+    "@types/pg": "^8.15.5",
     "@types/supertest": "^2.0.12",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
