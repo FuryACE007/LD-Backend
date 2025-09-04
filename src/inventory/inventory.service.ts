@@ -15,6 +15,7 @@ import {
 import {
   create,
   mplCandyMachine,
+  addConfigLines,
 } from '@metaplex-foundation/mpl-candy-machine';
 import {
   KeypairSigner,
@@ -1116,10 +1117,10 @@ export class InventoryService {
           },
         ],
         configLineSettings: some({
-          prefixName: `${dto.namePrefix} #$ID+1$`,
-          nameLength: 0,
+          prefixName: `${dto.namePrefix} #`,
+          nameLength: 4,
           prefixUri: this.IRYS_BASE_URI,
-          uriLength: 100,
+          uriLength: 9,
           isSequential: true,
         }),
       });
@@ -1127,9 +1128,16 @@ export class InventoryService {
 
       this.logger.log(`Candy machine created: ${candyMachine.publicKey}`);
 
+      // Insert config lines
+      await this.insertCandyMachineConfigLines(
+        umi,
+        candyMachine.publicKey.toString(),
+        dto.maxSupply,
+      );
+
       return {
         success: true,
-        message: 'Candy machine created successfully',
+        message: 'Candy machine created and config lines inserted successfully',
         candyMachineAddress: candyMachine.publicKey.toString(),
         collectionMintAddress: collectionMint.publicKey.toString(),
         collectionUpdateAuthority: authority.publicKey.toString(),
@@ -1141,6 +1149,48 @@ export class InventoryService {
         message: 'Failed to create candy machine',
         error: error.message,
       };
+    }
+  }
+
+  /**
+   * Inserts config lines into the candy machine in batches.
+   */
+  private async insertCandyMachineConfigLines(
+    umi: Umi,
+    candyMachineAddress: string,
+    maxSupply: number,
+  ) {
+    try {
+      this.logger.log('Starting to insert config lines...');
+      const batchSize = 10;
+      let itemsLoaded = 0;
+
+      while (itemsLoaded < maxSupply) {
+        const remainingItems = maxSupply - itemsLoaded;
+        const currentBatchSize = Math.min(batchSize, remainingItems);
+
+        const configLines = Array.from(
+          { length: currentBatchSize },
+          (_, i) => ({
+            name: (itemsLoaded + i + 1).toString(),
+            uri: `${(itemsLoaded + i + 1).toString()}.json`,
+          }),
+        );
+
+        await addConfigLines(umi, {
+          candyMachine: publicKey(candyMachineAddress),
+          index: itemsLoaded,
+          configLines,
+        }).sendAndConfirm(umi, {
+          confirm: { commitment: 'finalized' },
+        });
+
+        itemsLoaded += currentBatchSize;
+        this.logger.log(`Inserted ${itemsLoaded}/${maxSupply} config lines`);
+      }
+    } catch (error) {
+      this.logger.error('Failed to insert config lines:', error);
+      throw error;
     }
   }
 
