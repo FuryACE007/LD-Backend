@@ -75,6 +75,7 @@ import {
 } from './entities/redemption-code.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { CollectionMetadata } from './entities/collection-metadata.entity';
 
 @Injectable()
 export class InventoryService {
@@ -88,6 +89,8 @@ export class InventoryService {
     private httpService: HttpService,
     @InjectRepository(RedemptionCode)
     private redemptionCodeRepository: Repository<RedemptionCode>,
+    @InjectRepository(CollectionMetadata)
+    private collectionMetadataRepository: Repository<CollectionMetadata>,
   ) {
     this.umi = createUmi(process.env.RPC_ENDPOINT);
     this.umi.use(mplTokenMetadata());
@@ -1006,6 +1009,18 @@ export class InventoryService {
     try {
       this.logger.log('Starting candy machine creation process...');
 
+      // Check if collection name already exists
+      const existingCollection =
+        await this.collectionMetadataRepository.findOne({
+          where: { name: dto.collectionName },
+        });
+
+      if (existingCollection) {
+        throw new Error(
+          `Collection name "${dto.collectionName}" already exists`,
+        );
+      }
+
       if (dto.namePrefix.length > 32) {
         throw new Error('Name prefix exceeds maximum length of 32 characters');
       }
@@ -1184,12 +1199,23 @@ export class InventoryService {
         baseNftUri, // Pass the same URI for all NFTs
       );
 
-      // Generate redemption codes after successful candy machine creation
-      this.logger.log('Generating redemption codes...');
+      // After candy machine creation, save collection metadata
+      const collection = this.collectionMetadataRepository.create({
+        name: dto.collectionName,
+        candyMachineAddress: candyMachine.publicKey.toString(),
+        collectionMintAddress: collectionMint.publicKey.toString(),
+        collectionUpdateAuthority: authority.publicKey.toString(),
+        maxSupply: dto.maxSupply,
+      });
+
+      await this.collectionMetadataRepository.save(collection);
+
+      // Generate redemption codes with collection reference
       const redemptionCodes = await this.generateCodesForCandyMachine(
         candyMachine.publicKey.toString(),
         collectionMint.publicKey.toString(),
         dto.maxSupply,
+        collection.id,
       );
 
       this.logger.log(
@@ -1295,6 +1321,7 @@ export class InventoryService {
     candyMachineAddress: string,
     collectionMintAddress: string,
     maxSupply: number,
+    collectionId: string,
   ): Promise<RedemptionCode[]> {
     this.logger.log(
       `Generating ${maxSupply} redemption codes for candy machine: ${candyMachineAddress}`,
@@ -1320,6 +1347,7 @@ export class InventoryService {
               code,
               candyMachineAddress,
               collectionMintAddress,
+              collectionId, // Add the collection ID to each redemption code
               status: RedemptionStatus.UNUSED,
             }),
           );
@@ -1395,6 +1423,50 @@ export class InventoryService {
     return this.redemptionCodeRepository.findOne({
       where: { code, status: RedemptionStatus.UNUSED },
     });
+  }
+
+  /**
+   * Migrate existing redemption codes to link with a default collection
+   */
+  private async migrateExistingCodes() {
+    try {
+      // Check if legacy collection already exists
+      let defaultCollection = await this.collectionMetadataRepository.findOne({
+        where: { name: 'Legacy Collection' },
+      });
+
+      // Create only if it doesn't exist
+      if (!defaultCollection) {
+        defaultCollection = await this.collectionMetadataRepository.save({
+          name: 'Legacy Collection',
+          candyMachineAddress: 'legacy',
+          collectionMintAddress: 'legacy',
+          collectionUpdateAuthority: 'legacy',
+          maxSupply: 0,
+        });
+        this.logger.log('Created Legacy Collection');
+      }
+
+      // Update codes without collection ID
+      const updateResult = await this.redemptionCodeRepository
+        .createQueryBuilder()
+        .update()
+        .set({ collectionId: defaultCollection.id })
+        .where('collection_id IS NULL')
+        .execute();
+
+      this.logger.log(
+        `Updated ${updateResult.affected} redemption codes with Legacy Collection`,
+      );
+    } catch (error) {
+      this.logger.error('Failed to migrate existing codes:', error);
+      throw error;
+    }
+  }
+
+  async onModuleInit() {
+    // Run migration when the service initializes
+    await this.migrateExistingCodes();
   }
 
   // TODO: Create mint function to mint from candy machine - QR handled on frontend

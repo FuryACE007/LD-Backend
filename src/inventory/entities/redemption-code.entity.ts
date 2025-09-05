@@ -5,7 +5,10 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { CollectionMetadata } from './collection-metadata.entity';
 
 export enum RedemptionStatus {
   UNUSED = 'unused',
@@ -53,4 +56,18 @@ export class RedemptionCode {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @ManyToOne(
+    () => CollectionMetadata,
+    (collection) => collection.redemptionCodes,
+    {
+      nullable: false, // Change to false since we want this to be required
+      onDelete: 'CASCADE', // If collection is deleted, delete associated codes
+    },
+  )
+  @JoinColumn({ name: 'collection_id' })
+  collection: CollectionMetadata;
+
+  @Column({ name: 'collection_id' })
+  collectionId: string;
 }
