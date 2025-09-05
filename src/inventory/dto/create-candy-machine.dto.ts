@@ -99,13 +99,13 @@ export class CreateCandyMachineResponseDto {
   candyMachineAddress?: string;
 
   @ApiProperty({ example: 'abc...xyz' })
-  candyGuardAddress?: string;
-
-  @ApiProperty({ example: 'def...ghi' })
   collectionMintAddress?: string;
 
   @ApiProperty({ example: 'xyz...abc' })
   collectionUpdateAuthority?: string;
+
+  @ApiProperty({ example: 1000 })
+  totalRedemptionCodes?: number;
 
   @ApiProperty({ required: false })
   error?: string;

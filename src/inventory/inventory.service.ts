@@ -5,6 +5,7 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
+import * as crypto from 'crypto';
 import {
   TokenStandard,
   fetchAllDigitalAssetByOwner,
@@ -68,6 +69,12 @@ import {
   LogicalTokenMetadata,
   OnChainTokenMetadata,
 } from './types/token-metadata';
+import {
+  RedemptionCode,
+  RedemptionStatus,
+} from './entities/redemption-code.entity';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 
 @Injectable()
 export class InventoryService {
@@ -77,14 +84,13 @@ export class InventoryService {
 
   private readonly IRYS_BASE_URI = 'https://gateway.irys.xyz/';
 
-  constructor(private httpService: HttpService) {
+  constructor(
+    private httpService: HttpService,
+    @InjectRepository(RedemptionCode)
+    private redemptionCodeRepository: Repository<RedemptionCode>,
+  ) {
     this.umi = createUmi(process.env.RPC_ENDPOINT);
     this.umi.use(mplTokenMetadata());
-    // this.umi.use(
-    //   irysUploader({
-    //     address: 'https://devnet.irys.xyz',
-    //   }),
-    // );
   }
 
   /*--------------------- HELPER FUNCTIONS------------------------------------ */
@@ -1168,7 +1174,7 @@ export class InventoryService {
       await builder.sendAndConfirm(umi);
 
       this.logger.log(`Candy machine created: ${candyMachine.publicKey}`);
-      await new Promise((resolve) => setTimeout(resolve, 10000));
+      await new Promise((resolve) => setTimeout(resolve, 15000));
 
       // Insert config lines with same metadata for all (POC)
       await this.insertCandyMachineConfigLines(
@@ -1178,12 +1184,26 @@ export class InventoryService {
         baseNftUri, // Pass the same URI for all NFTs
       );
 
+      // Generate redemption codes after successful candy machine creation
+      this.logger.log('Generating redemption codes...');
+      const redemptionCodes = await this.generateCodesForCandyMachine(
+        candyMachine.publicKey.toString(),
+        collectionMint.publicKey.toString(),
+        dto.maxSupply,
+      );
+
+      this.logger.log(
+        `Generated ${redemptionCodes.length} redemption codes successfully!`,
+      );
+
       return {
         success: true,
-        message: 'Candy machine created and config lines inserted successfully',
+        message:
+          'Candy machine created, config lines inserted, and redemption codes generated successfully',
         candyMachineAddress: candyMachine.publicKey.toString(),
         collectionMintAddress: collectionMint.publicKey.toString(),
         collectionUpdateAuthority: authority.publicKey.toString(),
+        totalRedemptionCodes: redemptionCodes.length,
       };
     } catch (error) {
       this.logger.error('Failed to create candy machine:', error);
@@ -1246,6 +1266,135 @@ export class InventoryService {
       this.logger.error('Failed to insert config lines:', error);
       throw error;
     }
+  }
+
+  /**
+   * Generate a secure, QR-friendly redemption code
+   * Uses: Numbers + Uppercase letters (excluding confusing characters)
+   */
+  private generateSecureCode(): string {
+    // Character set: Numbers + uppercase letters (excluding 0, O, 1, I, L for clarity)
+    const charset = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+    const codeLength = 12; // QR-friendly length
+
+    let code = '';
+    const randomBytes = crypto.randomBytes(codeLength);
+
+    for (let i = 0; i < codeLength; i++) {
+      code += charset[randomBytes[i] % charset.length];
+    }
+
+    // Add hyphens for readability: XXXX-XXXX-XXXX
+    return `${code.slice(0, 4)}-${code.slice(4, 8)}-${code.slice(8, 12)}`;
+  }
+
+  /**
+   * Generate redemption codes for a candy machine
+   */
+  private async generateCodesForCandyMachine(
+    candyMachineAddress: string,
+    collectionMintAddress: string,
+    maxSupply: number,
+  ): Promise<RedemptionCode[]> {
+    this.logger.log(
+      `Generating ${maxSupply} redemption codes for candy machine: ${candyMachineAddress}`,
+    );
+
+    const codes: RedemptionCode[] = [];
+    const generatedCodes = new Set<string>();
+
+    // Generate unique codes
+    while (codes.length < maxSupply) {
+      const code = this.generateSecureCode();
+
+      // Check if code already exists (very unlikely but safety first)
+      if (!generatedCodes.has(code)) {
+        const existingCode = await this.redemptionCodeRepository.findOne({
+          where: { code },
+        });
+
+        if (!existingCode) {
+          generatedCodes.add(code);
+          codes.push(
+            this.redemptionCodeRepository.create({
+              code,
+              candyMachineAddress,
+              collectionMintAddress,
+              status: RedemptionStatus.UNUSED,
+            }),
+          );
+        }
+      }
+    }
+
+    // Batch insert for performance
+    const batchSize = 100;
+    const savedCodes: RedemptionCode[] = [];
+
+    for (let i = 0; i < codes.length; i += batchSize) {
+      const batch = codes.slice(i, i + batchSize);
+      const saved = await this.redemptionCodeRepository.save(batch);
+      savedCodes.push(...saved);
+
+      this.logger.log(
+        `Saved ${Math.min(i + batchSize, codes.length)}/${
+          codes.length
+        } redemption codes`,
+      );
+    }
+
+    this.logger.log(
+      `Successfully generated ${savedCodes.length} redemption codes`,
+    );
+    return savedCodes;
+  }
+
+  /**
+   * Get unused codes for a candy machine
+   */
+  async getUnusedCodes(candyMachineAddress: string): Promise<RedemptionCode[]> {
+    return this.redemptionCodeRepository.find({
+      where: {
+        candyMachineAddress,
+        status: RedemptionStatus.UNUSED,
+      },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  /**
+   * Mark a code as used
+   */
+  async markCodeAsUsed(
+    code: string,
+    userWalletAddress: string,
+    mintedNftAddress: string,
+    transactionSignature: string,
+  ): Promise<RedemptionCode> {
+    const redemptionCode = await this.redemptionCodeRepository.findOne({
+      where: { code, status: RedemptionStatus.UNUSED },
+    });
+
+    if (!redemptionCode) {
+      throw new Error('Invalid or already used redemption code');
+    }
+
+    redemptionCode.status = RedemptionStatus.USED;
+    redemptionCode.userWalletAddress = userWalletAddress;
+    redemptionCode.mintedNftAddress = mintedNftAddress;
+    redemptionCode.transactionSignature = transactionSignature;
+    redemptionCode.redeemedAt = new Date();
+
+    return this.redemptionCodeRepository.save(redemptionCode);
+  }
+
+  /**
+   * Validate a redemption code
+   */
+  async validateCode(code: string): Promise<RedemptionCode | null> {
+    return this.redemptionCodeRepository.findOne({
+      where: { code, status: RedemptionStatus.UNUSED },
+    });
   }
 
   // TODO: Create mint function to mint from candy machine - QR handled on frontend
