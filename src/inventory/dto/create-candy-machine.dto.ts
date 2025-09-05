@@ -19,16 +19,6 @@ export class CreateCandyMachineDto {
   collectionName: string;
 
   @ApiProperty({
-    description: 'Collection symbol',
-    example: 'SCOTCH70',
-    maxLength: 10,
-  })
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(10)
-  collectionSymbol: string;
-
-  @ApiProperty({
     description: 'Collection description',
     example: 'Scotch Collection 1970',
     maxLength: 200,

@@ -1025,15 +1025,9 @@ export class InventoryService {
         throw new Error('Name prefix exceeds maximum length of 32 characters');
       }
 
-      if (dto.collectionName.length > 32) {
+      if (dto.collectionName.length > 10) {
         throw new Error(
           'Collection name exceeds maximum length of 32 characters',
-        );
-      }
-
-      if (dto.collectionSymbol.length > 10) {
-        throw new Error(
-          'Collection symbol exceeds maximum length of 10 characters',
         );
       }
 
@@ -1063,7 +1057,7 @@ export class InventoryService {
       // Create collection metadata
       const collectionMetadata = {
         name: dto.collectionName,
-        symbol: dto.collectionSymbol,
+        symbol: dto.collectionName.replace(/\s+/g, '').slice(0, 10), // Max 10 chars, no spaces
         description: dto.collectionDescription,
         seller_fee_basis_points: 0,
         image: dto.baseImageUrl, // Using base image for collection
@@ -1091,7 +1085,7 @@ export class InventoryService {
         mint: collectionMint,
         authority: authority,
         name: dto.collectionName,
-        symbol: dto.collectionSymbol,
+        symbol: dto.collectionName.replace(/\s+/g, '').slice(0, 10), // Max 10 chars, no spaces
         uri: collectionUri,
         sellerFeeBasisPoints: percentAmount(0),
         isCollection: true,
@@ -1159,7 +1153,7 @@ export class InventoryService {
       Name Prefix: ${dto.namePrefix},
       Base URI: ${this.IRYS_BASE_URI},
       Collection Name: ${dto.collectionName},
-      Collection Symbol: ${dto.collectionSymbol},
+      Collection Symbol: ${dto.collectionName.replace(/\s+/g, '').slice(0, 10)},
       Collection URI: ${collectionUri},
       Collection Description: ${dto.collectionDescription}`);
 
