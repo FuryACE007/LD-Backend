@@ -10,7 +10,13 @@ import {
   fetchAllDigitalAssetByOwner,
   mintV1,
   mplTokenMetadata,
+  createNft,
 } from '@metaplex-foundation/mpl-token-metadata';
+import {
+  create,
+  mplCandyMachine,
+  addConfigLines,
+} from '@metaplex-foundation/mpl-candy-machine';
 import {
   KeypairSigner,
   SolAmount,
@@ -21,6 +27,7 @@ import {
   transactionBuilder,
   generateSigner,
   percentAmount,
+  some,
 } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 // import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
@@ -52,6 +59,10 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 
 import { BatchResponse } from './dto/batch-response.dto';
 import { CreateIPLTTokenResponseDto } from './dto/create-iplt-token.dto';
+import {
+  CreateCandyMachineResponseDto,
+  CreateCandyMachineDto,
+} from './dto/create-candy-machine.dto';
 import { createFungibleAsset } from '@metaplex-foundation/mpl-token-metadata';
 import {
   LogicalTokenMetadata,
@@ -63,6 +74,8 @@ export class InventoryService {
   private readonly umi: Umi;
 
   private readonly logger = new Logger(InventoryService.name);
+
+  private readonly IRYS_BASE_URI = 'https://gateway.irys.xyz/';
 
   constructor(private httpService: HttpService) {
     this.umi = createUmi(process.env.RPC_ENDPOINT);
@@ -980,4 +993,262 @@ export class InventoryService {
       };
     }
   }
+
+  async createCandyMachine(
+    dto: CreateCandyMachineDto,
+  ): Promise<CreateCandyMachineResponseDto> {
+    try {
+      this.logger.log('Starting candy machine creation process...');
+
+      if (dto.namePrefix.length > 32) {
+        throw new Error('Name prefix exceeds maximum length of 32 characters');
+      }
+
+      if (dto.collectionName.length > 32) {
+        throw new Error(
+          'Collection name exceeds maximum length of 32 characters',
+        );
+      }
+
+      if (dto.collectionSymbol.length > 10) {
+        throw new Error(
+          'Collection symbol exceeds maximum length of 10 characters',
+        );
+      }
+
+      if (dto.collectionDescription.length > 200) {
+        throw new Error(
+          'Collection description exceeds maximum length of 200 characters',
+        );
+      }
+
+      if (dto.maxSupply <= 0 || dto.maxSupply > 10000) {
+        throw new Error('Max supply must be between 1 and 10,000');
+      }
+
+      this.logger.log('Validations passed. Proceeding with creation...');
+
+      // Load the admin wallet that will pay for and manage the candy machine
+      const adminSigner = await this.loadWallet(process.env.PAYER_MNEMONIC);
+      const umi = this.generateUmi(adminSigner);
+      umi.use(mplCandyMachine());
+
+      this.logger.log('Creating collection NFT...');
+
+      // Create the Collection NFT
+      const collectionMint = generateSigner(umi);
+      const authority = umi.identity;
+
+      // Create collection metadata
+      const collectionMetadata = {
+        name: dto.collectionName,
+        symbol: dto.collectionSymbol,
+        description: dto.collectionDescription,
+        seller_fee_basis_points: 0,
+        image: dto.baseImageUrl, // Using base image for collection
+        properties: {
+          files: [],
+          category: 'image',
+          creators: [
+            {
+              address: authority.publicKey.toString(),
+              share: 100,
+            },
+          ],
+        },
+      };
+
+      // Upload collection metadata
+      const collectionUri = await this.uploadMetadata(
+        process.env.PAYER_MNEMONIC,
+        JSON.parse(JSON.stringify(collectionMetadata)),
+      );
+      this.logger.log(`Collection metadata uploaded to: ${collectionUri}`);
+
+      // Create the collection NFT
+      await createNft(umi, {
+        mint: collectionMint,
+        authority: authority,
+        name: dto.collectionName,
+        symbol: dto.collectionSymbol,
+        uri: collectionUri,
+        sellerFeeBasisPoints: percentAmount(0),
+        isCollection: true,
+        collectionDetails: {
+          __kind: 'V1',
+          size: dto.maxSupply,
+        },
+      }).sendAndConfirm(umi);
+
+      this.logger.log(
+        `Collection NFT created with mint: ${collectionMint.publicKey}`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10000));
+
+      // TODO: For unique metadata, create individual metadata files here
+      // Upload base NFT metadata for POC (same for all NFTs)
+      this.logger.log('Uploading base NFT metadata for POC...');
+      const baseNftMetadata = {
+        name: dto.baseNftName,
+        description: dto.baseNftDescription,
+        image: dto.baseImageUrl,
+        seller_fee_basis_points: 0,
+        properties: {
+          files: [
+            {
+              uri: dto.baseImageUrl,
+              type: 'image/png', // Adjust based on your image type
+            },
+          ],
+          category: 'image',
+          creators: [
+            {
+              address: authority.publicKey.toString(),
+              verified: true,
+              share: 100,
+            },
+          ],
+        },
+        attributes: [
+          // TODO: For unique metadata, generate different attributes per NFT
+          {
+            trait_type: 'Collection',
+            value: dto.collectionName,
+          },
+          {
+            trait_type: 'Series',
+            value: 'POC Series',
+          },
+          // TODO: Add rarity, background, style, etc. for unique NFTs
+        ],
+      };
+
+      const baseNftUri = await this.uploadMetadata(
+        process.env.PAYER_MNEMONIC,
+        JSON.parse(JSON.stringify(baseNftMetadata)),
+      );
+      this.logger.log(`Base NFT metadata uploaded to: ${baseNftUri}`);
+
+      // Create the Candy Machine
+      this.logger.log('Creating candy machine...');
+      const candyMachine = generateSigner(umi);
+
+      this.logger.log(`Candy Machine Config: 
+      Max Supply: ${dto.maxSupply},
+      Name Prefix: ${dto.namePrefix},
+      Base URI: ${this.IRYS_BASE_URI},
+      Collection Name: ${dto.collectionName},
+      Collection Symbol: ${dto.collectionSymbol},
+      Collection URI: ${collectionUri},
+      Collection Description: ${dto.collectionDescription}`);
+
+      // Create the candy machine with default configurations
+      const builder = await create(umi, {
+        candyMachine,
+        collectionMint: collectionMint.publicKey,
+        collectionUpdateAuthority: authority,
+        tokenStandard: TokenStandard.NonFungible,
+        sellerFeeBasisPoints: percentAmount(0),
+        itemsAvailable: dto.maxSupply,
+        creators: [
+          {
+            address: umi.identity.publicKey,
+            verified: true,
+            percentageShare: 100,
+          },
+        ],
+        configLineSettings: some({
+          prefixName: `${dto.namePrefix} #$ID+1$`,
+          nameLength: 0,
+          prefixUri: '', // Empty because we're using full URIs for POC
+          uriLength: 0, // 0 because we're using full URIs
+          isSequential: true,
+        }),
+      });
+      await builder.sendAndConfirm(umi);
+
+      this.logger.log(`Candy machine created: ${candyMachine.publicKey}`);
+      await new Promise((resolve) => setTimeout(resolve, 10000));
+
+      // Insert config lines with same metadata for all (POC)
+      await this.insertCandyMachineConfigLines(
+        umi,
+        candyMachine.publicKey.toString(),
+        dto.maxSupply,
+        baseNftUri, // Pass the same URI for all NFTs
+      );
+
+      return {
+        success: true,
+        message: 'Candy machine created and config lines inserted successfully',
+        candyMachineAddress: candyMachine.publicKey.toString(),
+        collectionMintAddress: collectionMint.publicKey.toString(),
+        collectionUpdateAuthority: authority.publicKey.toString(),
+      };
+    } catch (error) {
+      this.logger.error('Failed to create candy machine:', error);
+      return {
+        success: false,
+        message: 'Failed to create candy machine',
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * Inserts config lines into the candy machine in batches.
+   * For POC: Uses same metadata URI for all NFTs
+   * TODO: For unique metadata, pass different URIs per NFT
+   */
+  private async insertCandyMachineConfigLines(
+    umi: Umi,
+    candyMachineAddress: string,
+    maxSupply: number,
+    baseNftUri: string, // Same URI for all NFTs in POC
+  ) {
+    try {
+      this.logger.log('Starting to insert config lines...');
+      const batchSize = 10;
+      let itemsLoaded = 0;
+
+      while (itemsLoaded < maxSupply) {
+        const remainingItems = maxSupply - itemsLoaded;
+        const currentBatchSize = Math.min(batchSize, remainingItems);
+
+        const configLines = Array.from({ length: currentBatchSize }, () => ({
+          name: '',
+          uri: baseNftUri, // TODO: For unique metadata, use `${(itemsLoaded + i + 1)}.json`
+        }));
+
+        // TODO: For unique metadata, replace above with:
+        // const configLines = Array.from(
+        //   { length: currentBatchSize },
+        //   (_, i) => ({
+        //     name: (itemsLoaded + i + 1).toString().padStart(4, '0'),
+        //     uri: `${this.IRYS_BASE_URI}${(itemsLoaded + i + 1)}.json`, // Each NFT gets unique metadata
+        //   }),
+        // );
+
+        await addConfigLines(umi, {
+          candyMachine: publicKey(candyMachineAddress),
+          index: itemsLoaded,
+          configLines,
+        }).sendAndConfirm(umi, {
+          confirm: { commitment: 'finalized' },
+        });
+
+        itemsLoaded += currentBatchSize;
+        this.logger.log(`Inserted ${itemsLoaded}/${maxSupply} config lines`);
+      }
+
+      this.logger.log('All config lines inserted successfully!');
+    } catch (error) {
+      this.logger.error('Failed to insert config lines:', error);
+      throw error;
+    }
+  }
+
+  // TODO: Create mint function to mint from candy machine - QR handled on frontend
+  // TODO: Analytics function to get minting status, remaining supply, etc.
+  // TODO: Create Function to delete the candy machine
 }

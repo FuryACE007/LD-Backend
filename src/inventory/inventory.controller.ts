@@ -20,7 +20,9 @@ import {
   CreateIPLTTokenResponseDto,
 } from './dto/create-iplt-token.dto';
 import { LogicalTokenMetadata } from './types/token-metadata';
-import { string } from '@metaplex-foundation/umi/serializers';
+// import { string } from '@metaplex-foundation/umi/serializers';
+import { CreateCandyMachineDto } from './dto/create-candy-machine.dto';
+import { CreateCandyMachineResponseDto } from './dto/create-candy-machine.dto';
 
 @ApiTags('inventory')
 @Controller('inventory')
@@ -273,23 +275,45 @@ export class InventoryController {
     );
   }
 
-  @Get('token-metadata/:mintAddress')
+  // @Get('token-metadata/:mintAddress')
+  // @ApiOperation({
+  //   summary: 'Get token metadata',
+  //   description: 'Retrieves the on-chain metadata for a specific token.',
+  // })
+  // @ApiResponse({
+  //   status: 200,
+  //   description: 'Token metadata retrieved successfully.',
+  //   type: string,
+  // })
+  // @ApiParam({
+  //   name: 'mintAddress',
+  //   description: 'The mint address of the token',
+  // })
+  // async getTokenMetadata(
+  //   @Param('mintAddress') mintAddress: string,
+  // ): Promise<string> {
+  //   return this.inventoryService.getTokenData(mintAddress);
+  // }
+
+  @Post('create-candy-machine')
   @ApiOperation({
-    summary: 'Get token metadata',
-    description: 'Retrieves the on-chain metadata for a specific token.',
+    summary: 'Create a new candy machine with candy guard',
+    description:
+      'Creates a candy machine with allowlist guard and collection NFT',
   })
   @ApiResponse({
-    status: 200,
-    description: 'Token metadata retrieved successfully.',
-    type: string,
+    status: 201,
+    description: 'Candy machine created successfully',
+    type: CreateCandyMachineResponseDto,
   })
-  @ApiParam({
-    name: 'mintAddress',
-    description: 'The mint address of the token',
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request or candy machine creation failed',
   })
-  async getTokenMetadata(
-    @Param('mintAddress') mintAddress: string,
-  ): Promise<string> {
-    return this.inventoryService.getTokenData(mintAddress);
+  @ApiBody({ type: CreateCandyMachineDto })
+  async createCandyMachine(
+    @Body() createCandyMachineDto: CreateCandyMachineDto,
+  ): Promise<CreateCandyMachineResponseDto> {
+    return this.inventoryService.createCandyMachine(createCandyMachineDto);
   }
 }
