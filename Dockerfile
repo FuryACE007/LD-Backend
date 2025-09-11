@@ -1,4 +1,4 @@
-FROM node:16.20.2-alpine
+FROM node:24.0.2-alpine
 
 WORKDIR /usr/src/app
 
@@ -8,8 +8,8 @@ RUN rm -rf build
 
 RUN npm ci
 
-COPY . . 
+COPY . .
 
 RUN npm run build
-CMD ["node", "dist/main.js"]
 
+CMD ["node", "dist/main.js"]

@@ -5,6 +5,7 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
+import * as crypto from 'crypto';
 import {
   TokenStandard,
   fetchAllDigitalAssetByOwner,
@@ -13,9 +14,10 @@ import {
   createNft,
 } from '@metaplex-foundation/mpl-token-metadata';
 import {
-  create,
-  mplCandyMachine,
   addConfigLines,
+  mintFromCandyMachineV2,
+  mplCandyMachine,
+  createCandyMachineV2,
 } from '@metaplex-foundation/mpl-candy-machine';
 import {
   KeypairSigner,
@@ -30,8 +32,9 @@ import {
   some,
 } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
-// import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
 import { generateMnemonic, mnemonicToSeed } from 'bip39';
+import { fetchCandyMachine } from '@metaplex-foundation/mpl-core-candy-machine';
+
 import {
   Connection,
   LAMPORTS_PER_SOL,
@@ -45,6 +48,7 @@ import {
   transferSol,
   transferTokens,
   closeToken,
+  setComputeUnitLimit,
 } from '@metaplex-foundation/mpl-toolbox';
 import {
   getAssociatedTokenAddress,
@@ -63,11 +67,20 @@ import {
   CreateCandyMachineResponseDto,
   CreateCandyMachineDto,
 } from './dto/create-candy-machine.dto';
+import { RedeemMintResponseDto } from './dto/redeem-mint.dto';
 import { createFungibleAsset } from '@metaplex-foundation/mpl-token-metadata';
 import {
   LogicalTokenMetadata,
   OnChainTokenMetadata,
 } from './types/token-metadata';
+import {
+  RedemptionCode,
+  RedemptionStatus,
+} from './entities/redemption-code.entity';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import bs58 from 'bs58';
+import { CollectionMetadata } from './entities/collection-metadata.entity';
 
 @Injectable()
 export class InventoryService {
@@ -77,14 +90,16 @@ export class InventoryService {
 
   private readonly IRYS_BASE_URI = 'https://gateway.irys.xyz/';
 
-  constructor(private httpService: HttpService) {
+  constructor(
+    private httpService: HttpService,
+    @InjectRepository(RedemptionCode)
+    private redemptionCodeRepository: Repository<RedemptionCode>,
+    @InjectRepository(CollectionMetadata)
+    private collectionMetadataRepository: Repository<CollectionMetadata>,
+  ) {
     this.umi = createUmi(process.env.RPC_ENDPOINT);
+    this.umi.use(mplCandyMachine());
     this.umi.use(mplTokenMetadata());
-    // this.umi.use(
-    //   irysUploader({
-    //     address: 'https://devnet.irys.xyz',
-    //   }),
-    // );
   }
 
   /*--------------------- HELPER FUNCTIONS------------------------------------ */
@@ -96,6 +111,7 @@ export class InventoryService {
    */
   private generateUmi(signer: KeypairSigner): Umi {
     const umi = createUmi(process.env.RPC_ENDPOINT);
+    umi.use(mplCandyMachine());
     umi.use(mplTokenMetadata());
     umi.use(signerIdentity(signer));
     return umi;
@@ -1000,19 +1016,25 @@ export class InventoryService {
     try {
       this.logger.log('Starting candy machine creation process...');
 
+      // Check if collection name already exists
+      const existingCollection =
+        await this.collectionMetadataRepository.findOne({
+          where: { name: dto.collectionName },
+        });
+
+      if (existingCollection) {
+        throw new Error(
+          `Collection name "${dto.collectionName}" already exists`,
+        );
+      }
+
       if (dto.namePrefix.length > 32) {
         throw new Error('Name prefix exceeds maximum length of 32 characters');
       }
 
-      if (dto.collectionName.length > 32) {
+      if (dto.collectionName.length > 10) {
         throw new Error(
           'Collection name exceeds maximum length of 32 characters',
-        );
-      }
-
-      if (dto.collectionSymbol.length > 10) {
-        throw new Error(
-          'Collection symbol exceeds maximum length of 10 characters',
         );
       }
 
@@ -1031,7 +1053,6 @@ export class InventoryService {
       // Load the admin wallet that will pay for and manage the candy machine
       const adminSigner = await this.loadWallet(process.env.PAYER_MNEMONIC);
       const umi = this.generateUmi(adminSigner);
-      umi.use(mplCandyMachine());
 
       this.logger.log('Creating collection NFT...');
 
@@ -1042,7 +1063,7 @@ export class InventoryService {
       // Create collection metadata
       const collectionMetadata = {
         name: dto.collectionName,
-        symbol: dto.collectionSymbol,
+        symbol: dto.collectionName.replace(/\s+/g, '').slice(0, 10), // Max 10 chars, no spaces
         description: dto.collectionDescription,
         seller_fee_basis_points: 0,
         image: dto.baseImageUrl, // Using base image for collection
@@ -1070,7 +1091,7 @@ export class InventoryService {
         mint: collectionMint,
         authority: authority,
         name: dto.collectionName,
-        symbol: dto.collectionSymbol,
+        symbol: dto.collectionName.replace(/\s+/g, '').slice(0, 10), // Max 10 chars, no spaces
         uri: collectionUri,
         sellerFeeBasisPoints: percentAmount(0),
         isCollection: true,
@@ -1081,7 +1102,9 @@ export class InventoryService {
       }).sendAndConfirm(umi);
 
       this.logger.log(
-        `Collection NFT created with mint: ${collectionMint.publicKey}`,
+        `Collection NFT created with mint: ${
+          collectionMint.publicKey
+        }, and symbol: ${dto.collectionName.replace(/\s+/g, '').slice(0, 10)}`,
       );
       await new Promise((resolve) => setTimeout(resolve, 10000));
 
@@ -1138,12 +1161,12 @@ export class InventoryService {
       Name Prefix: ${dto.namePrefix},
       Base URI: ${this.IRYS_BASE_URI},
       Collection Name: ${dto.collectionName},
-      Collection Symbol: ${dto.collectionSymbol},
+      Collection Symbol: ${dto.collectionName.replace(/\s+/g, '').slice(0, 10)},
       Collection URI: ${collectionUri},
       Collection Description: ${dto.collectionDescription}`);
 
       // Create the candy machine with default configurations
-      const builder = await create(umi, {
+      const builder = await createCandyMachineV2(umi, {
         candyMachine,
         collectionMint: collectionMint.publicKey,
         collectionUpdateAuthority: authority,
@@ -1168,7 +1191,7 @@ export class InventoryService {
       await builder.sendAndConfirm(umi);
 
       this.logger.log(`Candy machine created: ${candyMachine.publicKey}`);
-      await new Promise((resolve) => setTimeout(resolve, 10000));
+      await new Promise((resolve) => setTimeout(resolve, 15000));
 
       // Insert config lines with same metadata for all (POC)
       await this.insertCandyMachineConfigLines(
@@ -1178,12 +1201,37 @@ export class InventoryService {
         baseNftUri, // Pass the same URI for all NFTs
       );
 
-      return {
-        success: true,
-        message: 'Candy machine created and config lines inserted successfully',
+      // After candy machine creation, save collection metadata
+      const collection = this.collectionMetadataRepository.create({
+        name: dto.collectionName,
         candyMachineAddress: candyMachine.publicKey.toString(),
         collectionMintAddress: collectionMint.publicKey.toString(),
         collectionUpdateAuthority: authority.publicKey.toString(),
+        maxSupply: dto.maxSupply,
+      });
+
+      await this.collectionMetadataRepository.save(collection);
+
+      // Generate redemption codes with collection reference
+      const redemptionCodes = await this.generateCodesForCandyMachine(
+        candyMachine.publicKey.toString(),
+        collectionMint.publicKey.toString(),
+        dto.maxSupply,
+        collection.id,
+      );
+
+      this.logger.log(
+        `Generated ${redemptionCodes.length} redemption codes successfully!`,
+      );
+
+      return {
+        success: true,
+        message:
+          'Candy machine created, config lines inserted, and redemption codes generated successfully',
+        candyMachineAddress: candyMachine.publicKey.toString(),
+        collectionMintAddress: collectionMint.publicKey.toString(),
+        collectionUpdateAuthority: authority.publicKey.toString(),
+        totalRedemptionCodes: redemptionCodes.length,
       };
     } catch (error) {
       this.logger.error('Failed to create candy machine:', error);
@@ -1192,6 +1240,99 @@ export class InventoryService {
         message: 'Failed to create candy machine',
         error: error.message,
       };
+    }
+  }
+
+  /**
+   * 🚀 Redeem a code and mint NFT to recipient wallet
+   */
+  async redeemAndMint(
+    code: string,
+    recipientWallet: string,
+  ): Promise<RedeemMintResponseDto> {
+    try {
+      this.logger.log(
+        `Starting redemption for code: ${code} to wallet: ${recipientWallet}`,
+      );
+
+      // 1. Validate redemption code WITH collection relationship
+      const redemptionCode = await this.redemptionCodeRepository.findOne({
+        where: { code: code.toUpperCase(), status: RedemptionStatus.UNUSED },
+        relations: ['collection'], // ✅ Load collection data
+      });
+
+      if (!redemptionCode) {
+        throw new Error('Invalid or already used redemption code');
+      }
+
+      this.logger.log(
+        `Valid redemption code found for collection: ${redemptionCode.collection.name}`,
+      );
+
+      // 2. Setup UMI with admin signer
+      const adminSigner = await this.loadWallet(process.env.PAYER_MNEMONIC);
+      const umi = this.generateUmi(adminSigner);
+
+      // 3. Fetch candy machine to get collection info
+      const candyMachineAddress = publicKey(redemptionCode.candyMachineAddress);
+      const candyMachineAccount = await fetchCandyMachine(
+        umi,
+        candyMachineAddress,
+      );
+
+      // 4. Generate new NFT mint and prepare transaction
+      const nftMint = generateSigner(umi);
+      const recipientPublicKey = publicKey(recipientWallet);
+
+      this.logger.log(
+        `Minting NFT with address: ${nftMint.publicKey.toString()}`,
+      );
+
+      // 5. Build and send mint transaction
+      const tx = transactionBuilder()
+        .add(setComputeUnitLimit(umi, { units: 800_000 }))
+        .add(
+          mintFromCandyMachineV2(umi, {
+            candyMachine: candyMachineAccount.publicKey,
+            mintAuthority: adminSigner, // server wallet
+            nftOwner: recipientPublicKey, // User gets the NFT
+            nftMint,
+            collectionMint: publicKey(
+              redemptionCode.collection.collectionMintAddress,
+            ), // ✅ From database
+            collectionUpdateAuthority: publicKey(
+              redemptionCode.collection.collectionUpdateAuthority,
+            ), // ✅ From database
+          }),
+        );
+
+      const { signature } = await tx.sendAndConfirm(umi, {
+        confirm: { commitment: 'finalized' },
+      });
+      this.logger.log(
+        `NFT minted successfully! Transaction: ${bs58.encode(signature)}`,
+      );
+
+      // 6. ✅ Mark redemption code as used with ALL required fields
+      const updatedCode = await this.markCodeAsUsed(
+        code.toUpperCase(),
+        recipientWallet,
+        nftMint.publicKey.toString(),
+        bs58.encode(signature).toString(),
+      );
+
+      this.logger.log(
+        `Redemption code marked as used. Code ID: ${updatedCode.id}, Status: ${updatedCode.status}`,
+      );
+
+      return {
+        nftAddress: nftMint.publicKey.toString(),
+        txSignature: bs58.encode(signature).toString(),
+        collectionName: redemptionCode.collection.name, // ✅ Return collection info
+      };
+    } catch (error) {
+      this.logger.error(`Failed to redeem and mint: ${error.message}`, error);
+      throw new Error(`Redemption failed: ${error.message}`);
     }
   }
 
@@ -1248,7 +1389,199 @@ export class InventoryService {
     }
   }
 
-  // TODO: Create mint function to mint from candy machine - QR handled on frontend
+  /**
+   * Generate a secure, QR-friendly redemption code
+   * Uses: Numbers + Uppercase letters (excluding confusing characters)
+   */
+  private generateSecureCode(): string {
+    // Character set: Numbers + uppercase letters (excluding 0, O, 1, I, L for clarity)
+    const charset = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+    const codeLength = 12; // QR-friendly length
+
+    let code = '';
+    const randomBytes = crypto.randomBytes(codeLength);
+
+    for (let i = 0; i < codeLength; i++) {
+      code += charset[randomBytes[i] % charset.length];
+    }
+
+    // Add hyphens for readability: XXXX-XXXX-XXXX
+    return `${code.slice(0, 4)}-${code.slice(4, 8)}-${code.slice(8, 12)}`;
+  }
+
+  /**
+   * Generate redemption codes for a candy machine
+   */
+  private async generateCodesForCandyMachine(
+    candyMachineAddress: string,
+    collectionMintAddress: string,
+    maxSupply: number,
+    collectionId: string,
+  ): Promise<RedemptionCode[]> {
+    this.logger.log(
+      `Generating ${maxSupply} redemption codes for candy machine: ${candyMachineAddress}`,
+    );
+
+    const codes: RedemptionCode[] = [];
+    const generatedCodes = new Set<string>();
+
+    // Generate unique codes
+    while (codes.length < maxSupply) {
+      const code = this.generateSecureCode();
+
+      // Check if code already exists (very unlikely but safety first)
+      if (!generatedCodes.has(code)) {
+        const existingCode = await this.redemptionCodeRepository.findOne({
+          where: { code },
+        });
+
+        if (!existingCode) {
+          generatedCodes.add(code);
+          codes.push(
+            this.redemptionCodeRepository.create({
+              code,
+              candyMachineAddress,
+              collectionMintAddress,
+              collectionId, // Add the collection ID to each redemption code
+              status: RedemptionStatus.UNUSED,
+            }),
+          );
+        }
+      }
+    }
+
+    // Batch insert for performance
+    const batchSize = 100;
+    const savedCodes: RedemptionCode[] = [];
+
+    for (let i = 0; i < codes.length; i += batchSize) {
+      const batch = codes.slice(i, i + batchSize);
+      const saved = await this.redemptionCodeRepository.save(batch);
+      savedCodes.push(...saved);
+
+      this.logger.log(
+        `Saved ${Math.min(i + batchSize, codes.length)}/${
+          codes.length
+        } redemption codes`,
+      );
+    }
+
+    this.logger.log(
+      `Successfully generated ${savedCodes.length} redemption codes`,
+    );
+    return savedCodes;
+  }
+
+  /**
+   * Get unused codes for a candy machine
+   */
+  async getUnusedCodes(candyMachineAddress: string): Promise<RedemptionCode[]> {
+    return this.redemptionCodeRepository.find({
+      where: {
+        candyMachineAddress,
+        status: RedemptionStatus.UNUSED,
+      },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  /**
+   * Validate a redemption code
+   */
+  async validateCode(code: string): Promise<RedemptionCode | null> {
+    return this.redemptionCodeRepository.findOne({
+      where: { code, status: RedemptionStatus.UNUSED },
+    });
+  }
+
+  /**
+   * Migrate existing redemption codes to link with a default collection
+   */
+  private async migrateExistingCodes() {
+    try {
+      // Check if legacy collection already exists
+      let defaultCollection = await this.collectionMetadataRepository.findOne({
+        where: { name: 'Legacy Collection' },
+      });
+
+      // Create only if it doesn't exist
+      if (!defaultCollection) {
+        defaultCollection = await this.collectionMetadataRepository.save({
+          name: 'Legacy Collection',
+          candyMachineAddress: 'legacy',
+          collectionMintAddress: 'legacy',
+          collectionUpdateAuthority: 'legacy',
+          maxSupply: 0,
+        });
+        this.logger.log('Created Legacy Collection');
+      }
+
+      // Update codes without collection ID
+      const updateResult = await this.redemptionCodeRepository
+        .createQueryBuilder()
+        .update()
+        .set({ collectionId: defaultCollection.id })
+        .where('collection_id IS NULL')
+        .execute();
+
+      this.logger.log(
+        `Updated ${updateResult.affected} redemption codes with Legacy Collection`,
+      );
+    } catch (error) {
+      this.logger.error('Failed to migrate existing codes:', error);
+      throw error;
+    }
+  }
+
+  async onModuleInit() {
+    // Run migration when the service initializes
+    await this.migrateExistingCodes();
+  }
+
+  /**
+   * Mark a code as used with all required fields
+   */
+  async markCodeAsUsed(
+    code: string,
+    userWalletAddress: string,
+    mintedNftAddress: string,
+    transactionSignature: string,
+  ): Promise<RedemptionCode> {
+    // Use a transaction to ensure atomicity
+    return await this.redemptionCodeRepository.manager.transaction(
+      async (manager) => {
+        const redemptionCode = await manager.findOne(RedemptionCode, {
+          where: { code, status: RedemptionStatus.UNUSED },
+          relations: ['collection'], // ✅ Load the collection relationship
+        });
+
+        if (!redemptionCode) {
+          throw new Error('Invalid or already used redemption code');
+        }
+
+        // ✅ Update all required fields
+        redemptionCode.status = RedemptionStatus.USED; // Status update
+        redemptionCode.userWalletAddress = userWalletAddress; // User wallet
+        redemptionCode.mintedNftAddress = mintedNftAddress; // NFT address
+        redemptionCode.transactionSignature = transactionSignature; // TX signature
+        redemptionCode.redeemedAt = new Date(); // Timestamp
+
+        // ✅ Save and return updated entity
+        return await manager.save(RedemptionCode, redemptionCode);
+      },
+    );
+  }
+
+  /**----------Candy Machine analyttics--------------- */
+
+  async getAllCandyMachineAddresses(): Promise<string[]> {
+    const collections = await this.collectionMetadataRepository.find({
+      select: ['candyMachineAddress'],
+    });
+
+    return collections.map((collection) => collection.candyMachineAddress);
+  }
+
   // TODO: Analytics function to get minting status, remaining supply, etc.
   // TODO: Create Function to delete the candy machine
 }

@@ -23,6 +23,12 @@ import { LogicalTokenMetadata } from './types/token-metadata';
 // import { string } from '@metaplex-foundation/umi/serializers';
 import { CreateCandyMachineDto } from './dto/create-candy-machine.dto';
 import { CreateCandyMachineResponseDto } from './dto/create-candy-machine.dto';
+import {
+  RedeemMintRequestDto,
+  RedeemMintResponseDto,
+} from './dto/redeem-mint.dto';
+import { HttpStatus } from '@nestjs/common';
+import { RedemptionCode } from './entities/redemption-code.entity';
 
 @ApiTags('inventory')
 @Controller('inventory')
@@ -67,6 +73,43 @@ export class InventoryController {
     @Param('walletAddress') walletAddress: string,
   ): Promise<any> {
     return this.inventoryService.getTokenData(walletAddress);
+  }
+
+  /**-----------------------------Get all candy machine addresses-------------------- */
+  @Get('candy-machine-addresses')
+  @ApiOperation({
+    summary: 'Retrieve all candy machine addresses',
+    description: 'Returns a list of all candy machine addresses.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'The list of candy machine addresses.',
+    schema: { type: 'array', items: { type: 'string' } },
+  })
+  async getAllCandyMachineAddresses(): Promise<string[]> {
+    return this.inventoryService.getAllCandyMachineAddresses();
+  }
+
+  /**----------------------------Get unused redemption codes------------------------- */
+  @Get('unused-codes/:candyMachineAddress')
+  @ApiOperation({
+    summary: 'Retrieve unused redemption codes for a candy machine',
+    description:
+      'Returns all unused redemption codes associated with the specified candy machine address.',
+  })
+  @ApiParam({
+    name: 'candyMachineAddress',
+    description: 'The candy machine address to retrieve unused codes for.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'The list of unused redemption codes.',
+    schema: { type: 'array', items: { type: 'string' } },
+  })
+  async getUnusedRedemptionCodes(
+    @Param('candyMachineAddress') candyMachineAddress: string,
+  ): Promise<RedemptionCode[]> {
+    return this.inventoryService.getUnusedCodes(candyMachineAddress);
   }
 
   /*---------- Used to create a wallet and generate a new instance of OEM with the given signer-------- */
@@ -315,5 +358,33 @@ export class InventoryController {
     @Body() createCandyMachineDto: CreateCandyMachineDto,
   ): Promise<CreateCandyMachineResponseDto> {
     return this.inventoryService.createCandyMachine(createCandyMachineDto);
+  }
+
+  @Post('redeem')
+  @ApiOperation({
+    summary: 'Redeem a code and mint NFT',
+    description:
+      'Uses a redemption code to mint an NFT to the specified wallet',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully minted NFT',
+    type: RedeemMintResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid redemption code or wallet address',
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Error during minting process',
+  })
+  async redeemAndMint(
+    @Body() redeemRequest: RedeemMintRequestDto,
+  ): Promise<RedeemMintResponseDto> {
+    return this.inventoryService.redeemAndMint(
+      redeemRequest.code,
+      redeemRequest.recipientWallet,
+    );
   }
 }

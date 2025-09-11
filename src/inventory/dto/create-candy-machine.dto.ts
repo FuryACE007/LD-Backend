@@ -19,16 +19,6 @@ export class CreateCandyMachineDto {
   collectionName: string;
 
   @ApiProperty({
-    description: 'Collection symbol',
-    example: 'SCOTCH70',
-    maxLength: 10,
-  })
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(10)
-  collectionSymbol: string;
-
-  @ApiProperty({
     description: 'Collection description',
     example: 'Scotch Collection 1970',
     maxLength: 200,
@@ -40,7 +30,7 @@ export class CreateCandyMachineDto {
 
   @ApiProperty({
     description: 'Maximum supply of tokens that can be minted',
-    example: 1000,
+    example: 5,
     minimum: 1,
   })
   @IsNumber()
@@ -99,13 +89,13 @@ export class CreateCandyMachineResponseDto {
   candyMachineAddress?: string;
 
   @ApiProperty({ example: 'abc...xyz' })
-  candyGuardAddress?: string;
-
-  @ApiProperty({ example: 'def...ghi' })
   collectionMintAddress?: string;
 
   @ApiProperty({ example: 'xyz...abc' })
   collectionUpdateAuthority?: string;
+
+  @ApiProperty({ example: 1000 })
+  totalRedemptionCodes?: number;
 
   @ApiProperty({ required: false })
   error?: string;
