@@ -1,5 +1,44 @@
-version: '2.17.2'
+version: '3.8'
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: lucid-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${DB_USERNAME}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USERNAME} -d ${DB_NAME}']
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+  node-app:
+    container_name: lucid-backend-service
+    restart: unless-stopped
+    build:
+      context: ./
+    environment:
+      - RPC_ENDPOINT=${RPC_ENDPOINT}
+      - PAYER_MNEMONIC=${PAYER_MNEMONIC}
+      - NODE_ENV=${NODE_ENV}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   caddy:
     image: caddy/caddy:2.2.1-alpine
     container_name: caddy-service
@@ -12,18 +51,10 @@ services:
       - $PWD/site:/srv
       - caddy_data:/data
       - caddy_config:/config
-
-  node-app:
-    container_name: lucid-backend-service
-    restart: unless-stopped
-    environment:
-      - RPC_ENDPOINT=${RPC_ENDPOINT}
-      - NODE_ENV=production
-    build:
-      context: ./
-    ports:
-      - '3000:3000'
+    depends_on:
+      - node-app
 
 volumes:
+  postgres_data:
   caddy_data:
   caddy_config:
