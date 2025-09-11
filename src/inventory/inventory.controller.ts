@@ -23,6 +23,11 @@ import { LogicalTokenMetadata } from './types/token-metadata';
 // import { string } from '@metaplex-foundation/umi/serializers';
 import { CreateCandyMachineDto } from './dto/create-candy-machine.dto';
 import { CreateCandyMachineResponseDto } from './dto/create-candy-machine.dto';
+import {
+  RedeemMintRequestDto,
+  RedeemMintResponseDto,
+} from './dto/redeem-mint.dto';
+import { HttpStatus } from '@nestjs/common';
 
 @ApiTags('inventory')
 @Controller('inventory')
@@ -315,5 +320,33 @@ export class InventoryController {
     @Body() createCandyMachineDto: CreateCandyMachineDto,
   ): Promise<CreateCandyMachineResponseDto> {
     return this.inventoryService.createCandyMachine(createCandyMachineDto);
+  }
+
+  @Post('redeem')
+  @ApiOperation({
+    summary: 'Redeem a code and mint NFT',
+    description:
+      'Uses a redemption code to mint an NFT to the specified wallet',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully minted NFT',
+    type: RedeemMintResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid redemption code or wallet address',
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Error during minting process',
+  })
+  async redeemAndMint(
+    @Body() redeemRequest: RedeemMintRequestDto,
+  ): Promise<RedeemMintResponseDto> {
+    return this.inventoryService.redeemAndMint(
+      redeemRequest.code,
+      redeemRequest.recipientWallet,
+    );
   }
 }
