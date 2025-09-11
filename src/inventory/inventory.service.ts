@@ -79,6 +79,7 @@ import {
 } from './entities/redemption-code.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import bs58 from 'bs58';
 import { CollectionMetadata } from './entities/collection-metadata.entity';
 
 @Injectable()
@@ -1328,15 +1329,16 @@ export class InventoryService {
       const { signature } = await tx.sendAndConfirm(umi, {
         confirm: { commitment: 'finalized' },
       });
-
-      this.logger.log(`NFT minted successfully! Transaction: ${signature}`);
+      this.logger.log(
+        `NFT minted successfully! Transaction: ${bs58.encode(signature)}`,
+      );
 
       // 6. ✅ Mark redemption code as used with ALL required fields
       const updatedCode = await this.markCodeAsUsed(
         code.toUpperCase(),
         recipientWallet,
         nftMint.publicKey.toString(),
-        signature.toString(),
+        bs58.encode(signature).toString(),
       );
 
       this.logger.log(
@@ -1345,7 +1347,7 @@ export class InventoryService {
 
       return {
         nftAddress: nftMint.publicKey.toString(),
-        txSignature: signature.toString(),
+        txSignature: bs58.encode(signature).toString(),
         collectionName: redemptionCode.collection.name, // ✅ Return collection info
       };
     } catch (error) {
