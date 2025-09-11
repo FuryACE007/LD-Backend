@@ -30,7 +30,7 @@ export class CreateCandyMachineDto {
 
   @ApiProperty({
     description: 'Maximum supply of tokens that can be minted',
-    example: 1000,
+    example: 5,
     minimum: 1,
   })
   @IsNumber()

@@ -28,6 +28,7 @@ import {
   RedeemMintResponseDto,
 } from './dto/redeem-mint.dto';
 import { HttpStatus } from '@nestjs/common';
+import { RedemptionCode } from './entities/redemption-code.entity';
 
 @ApiTags('inventory')
 @Controller('inventory')
@@ -72,6 +73,43 @@ export class InventoryController {
     @Param('walletAddress') walletAddress: string,
   ): Promise<any> {
     return this.inventoryService.getTokenData(walletAddress);
+  }
+
+  /**-----------------------------Get all candy machine addresses-------------------- */
+  @Get('candy-machine-addresses')
+  @ApiOperation({
+    summary: 'Retrieve all candy machine addresses',
+    description: 'Returns a list of all candy machine addresses.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'The list of candy machine addresses.',
+    schema: { type: 'array', items: { type: 'string' } },
+  })
+  async getAllCandyMachineAddresses(): Promise<string[]> {
+    return this.inventoryService.getAllCandyMachineAddresses();
+  }
+
+  /**----------------------------Get unused redemption codes------------------------- */
+  @Get('unused-codes/:candyMachineAddress')
+  @ApiOperation({
+    summary: 'Retrieve unused redemption codes for a candy machine',
+    description:
+      'Returns all unused redemption codes associated with the specified candy machine address.',
+  })
+  @ApiParam({
+    name: 'candyMachineAddress',
+    description: 'The candy machine address to retrieve unused codes for.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'The list of unused redemption codes.',
+    schema: { type: 'array', items: { type: 'string' } },
+  })
+  async getUnusedRedemptionCodes(
+    @Param('candyMachineAddress') candyMachineAddress: string,
+  ): Promise<RedemptionCode[]> {
+    return this.inventoryService.getUnusedCodes(candyMachineAddress);
   }
 
   /*---------- Used to create a wallet and generate a new instance of OEM with the given signer-------- */
