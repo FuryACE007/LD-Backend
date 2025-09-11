@@ -1284,26 +1284,6 @@ export class InventoryService {
       const nftMint = generateSigner(umi);
       const recipientPublicKey = publicKey(recipientWallet);
 
-      console.log('Your Server Wallet:', adminSigner.publicKey.toString());
-
-      // Add this after fetching the candy machine
-      console.log(
-        'From Database - Collection Mint:',
-        redemptionCode.collection.collectionMintAddress,
-      );
-      console.log(
-        'From Database - Collection Authority:',
-        redemptionCode.collection.collectionUpdateAuthority,
-      );
-      console.log(
-        'From Candy Machine - Collection Mint:',
-        candyMachineAccount.collectionMint.toString(),
-      );
-      console.log(
-        'From Candy Machine - Authority:',
-        candyMachineAccount.authority.toString(),
-      );
-
       this.logger.log(
         `Minting NFT with address: ${nftMint.publicKey.toString()}`,
       );
@@ -1592,7 +1572,16 @@ export class InventoryService {
     );
   }
 
-  // TODO: Create mint function to mint from candy machine - QR handled on frontend
+  /**----------Candy Machine analyttics--------------- */
+
+  async getAllCandyMachineAddresses(): Promise<string[]> {
+    const collections = await this.collectionMetadataRepository.find({
+      select: ['candyMachineAddress'],
+    });
+
+    return collections.map((collection) => collection.candyMachineAddress);
+  }
+
   // TODO: Analytics function to get minting status, remaining supply, etc.
   // TODO: Create Function to delete the candy machine
 }
