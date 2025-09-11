@@ -13,7 +13,11 @@ import {
   mplTokenMetadata,
   createNft,
 } from '@metaplex-foundation/mpl-token-metadata';
-import { create, addConfigLines } from '@metaplex-foundation/mpl-candy-machine';
+import {
+  create,
+  addConfigLines,
+  mintFromCandyMachineV2,
+} from '@metaplex-foundation/mpl-candy-machine';
 import {
   KeypairSigner,
   SolAmount,
@@ -28,11 +32,7 @@ import {
 } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { generateMnemonic, mnemonicToSeed } from 'bip39';
-import {
-  fetchCandyMachine,
-  mintAssetFromCandyMachine,
-  mplCandyMachine,
-} from '@metaplex-foundation/mpl-core-candy-machine';
+import { fetchCandyMachine } from '@metaplex-foundation/mpl-core-candy-machine';
 
 import {
   Connection,
@@ -109,7 +109,6 @@ export class InventoryService {
   private generateUmi(signer: KeypairSigner): Umi {
     const umi = createUmi(process.env.RPC_ENDPOINT);
     umi.use(mplTokenMetadata());
-    umi.use(mplCandyMachine());
     umi.use(signerIdentity(signer));
     return umi;
   }
@@ -1050,7 +1049,6 @@ export class InventoryService {
       // Load the admin wallet that will pay for and manage the candy machine
       const adminSigner = await this.loadWallet(process.env.PAYER_MNEMONIC);
       const umi = this.generateUmi(adminSigner);
-      umi.use(mplCandyMachine());
 
       this.logger.log('Creating collection NFT...');
 
@@ -1270,7 +1268,6 @@ export class InventoryService {
       // 2. Setup UMI with admin signer
       const adminSigner = await this.loadWallet(process.env.PAYER_MNEMONIC);
       const umi = this.generateUmi(adminSigner);
-      umi.use(mplCandyMachine());
 
       // 3. Fetch candy machine to get collection info
       const candyMachineAddress = publicKey(redemptionCode.candyMachineAddress);
@@ -1288,16 +1285,16 @@ export class InventoryService {
       );
 
       // 5. Build and send mint transaction
-      const txnBuilder = transactionBuilder();
-      const tx = txnBuilder
+      const tx = transactionBuilder()
         .add(setComputeUnitLimit(umi, { units: 800_000 }))
         .add(
-          mintAssetFromCandyMachine(umi, {
+          mintFromCandyMachineV2(umi, {
             candyMachine: candyMachineAccount.publicKey,
-            mintAuthority: umi.identity,
-            assetOwner: recipientPublicKey,
-            asset: nftMint,
-            collection: candyMachineAccount.collectionMint,
+            mintAuthority: umi.identity, // server wallet
+            nftOwner: recipientPublicKey, // User gets the NFT
+            nftMint,
+            collectionMint: candyMachineAccount.collectionMint,
+            collectionUpdateAuthority: candyMachineAccount.authority,
           }),
         );
 
