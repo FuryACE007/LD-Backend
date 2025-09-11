@@ -1096,7 +1096,9 @@ export class InventoryService {
       }).sendAndConfirm(umi);
 
       this.logger.log(
-        `Collection NFT created with mint: ${collectionMint.publicKey}`,
+        `Collection NFT created with mint: ${
+          collectionMint.publicKey
+        }, and symbol: ${dto.collectionName.replace(/\s+/g, '').slice(0, 10)}`,
       );
       await new Promise((resolve) => setTimeout(resolve, 10000));
 
