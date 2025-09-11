@@ -1283,15 +1283,25 @@ export class InventoryService {
       const nftMint = generateSigner(umi);
       const recipientPublicKey = publicKey(recipientWallet);
 
+      console.log('Your Server Wallet:', adminSigner.publicKey.toString());
+
+      // Add this after fetching the candy machine
       console.log(
-        'Candy Machine Authority:',
+        'From Database - Collection Mint:',
+        redemptionCode.collection.collectionMintAddress,
+      );
+      console.log(
+        'From Database - Collection Authority:',
+        redemptionCode.collection.collectionUpdateAuthority,
+      );
+      console.log(
+        'From Candy Machine - Collection Mint:',
+        candyMachineAccount.collectionMint.toString(),
+      );
+      console.log(
+        'From Candy Machine - Authority:',
         candyMachineAccount.authority.toString(),
       );
-      console.log(
-        'Candy Machine Mint Authority:',
-        candyMachineAccount.mintAuthority.toString(),
-      );
-      console.log('Your Server Wallet:', adminSigner.publicKey.toString());
 
       this.logger.log(
         `Minting NFT with address: ${nftMint.publicKey.toString()}`,
@@ -1306,8 +1316,12 @@ export class InventoryService {
             mintAuthority: adminSigner, // server wallet
             nftOwner: recipientPublicKey, // User gets the NFT
             nftMint,
-            collectionMint: candyMachineAccount.collectionMint,
-            collectionUpdateAuthority: candyMachineAccount.authority, // server wallet
+            collectionMint: publicKey(
+              redemptionCode.collection.collectionMintAddress,
+            ), // ✅ From database
+            collectionUpdateAuthority: publicKey(
+              redemptionCode.collection.collectionUpdateAuthority,
+            ), // ✅ From database
           }),
         );
 
