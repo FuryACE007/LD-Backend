@@ -13,11 +13,7 @@ import {
   mplTokenMetadata,
   createNft,
 } from '@metaplex-foundation/mpl-token-metadata';
-import {
-  create,
-  mplCandyMachine,
-  addConfigLines,
-} from '@metaplex-foundation/mpl-candy-machine';
+import { create, addConfigLines } from '@metaplex-foundation/mpl-candy-machine';
 import {
   KeypairSigner,
   SolAmount,
@@ -31,8 +27,13 @@ import {
   some,
 } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
-// import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
 import { generateMnemonic, mnemonicToSeed } from 'bip39';
+import {
+  fetchCandyMachine,
+  mintAssetFromCandyMachine,
+  mplCandyMachine,
+} from '@metaplex-foundation/mpl-core-candy-machine';
+
 import {
   Connection,
   LAMPORTS_PER_SOL,
@@ -46,6 +47,7 @@ import {
   transferSol,
   transferTokens,
   closeToken,
+  setComputeUnitLimit,
 } from '@metaplex-foundation/mpl-toolbox';
 import {
   getAssociatedTokenAddress,
@@ -64,6 +66,7 @@ import {
   CreateCandyMachineResponseDto,
   CreateCandyMachineDto,
 } from './dto/create-candy-machine.dto';
+import { RedeemMintResponseDto } from './dto/redeem-mint.dto';
 import { createFungibleAsset } from '@metaplex-foundation/mpl-token-metadata';
 import {
   LogicalTokenMetadata,
@@ -106,6 +109,7 @@ export class InventoryService {
   private generateUmi(signer: KeypairSigner): Umi {
     const umi = createUmi(process.env.RPC_ENDPOINT);
     umi.use(mplTokenMetadata());
+    umi.use(mplCandyMachine());
     umi.use(signerIdentity(signer));
     return umi;
   }
@@ -1238,6 +1242,95 @@ export class InventoryService {
   }
 
   /**
+   * 🚀 Redeem a code and mint NFT to recipient wallet
+   */
+  async redeemAndMint(
+    code: string,
+    recipientWallet: string,
+  ): Promise<RedeemMintResponseDto> {
+    try {
+      this.logger.log(
+        `Starting redemption for code: ${code} to wallet: ${recipientWallet}`,
+      );
+
+      // 1. Validate redemption code WITH collection relationship
+      const redemptionCode = await this.redemptionCodeRepository.findOne({
+        where: { code: code.toUpperCase(), status: RedemptionStatus.UNUSED },
+        relations: ['collection'], // ✅ Load collection data
+      });
+
+      if (!redemptionCode) {
+        throw new Error('Invalid or already used redemption code');
+      }
+
+      this.logger.log(
+        `Valid redemption code found for collection: ${redemptionCode.collection.name}`,
+      );
+
+      // 2. Setup UMI with admin signer
+      const adminSigner = await this.loadWallet(process.env.PAYER_MNEMONIC);
+      const umi = this.generateUmi(adminSigner);
+      umi.use(mplCandyMachine());
+
+      // 3. Fetch candy machine to get collection info
+      const candyMachineAddress = publicKey(redemptionCode.candyMachineAddress);
+      const candyMachineAccount = await fetchCandyMachine(
+        umi,
+        candyMachineAddress,
+      );
+
+      // 4. Generate new NFT mint and prepare transaction
+      const nftMint = generateSigner(umi);
+      const recipientPublicKey = publicKey(recipientWallet);
+
+      this.logger.log(
+        `Minting NFT with address: ${nftMint.publicKey.toString()}`,
+      );
+
+      // 5. Build and send mint transaction
+      const txnBuilder = transactionBuilder();
+      const tx = txnBuilder
+        .add(setComputeUnitLimit(umi, { units: 800_000 }))
+        .add(
+          mintAssetFromCandyMachine(umi, {
+            candyMachine: candyMachineAccount.publicKey,
+            mintAuthority: umi.identity,
+            assetOwner: recipientPublicKey,
+            asset: nftMint,
+            collection: candyMachineAccount.collectionMint,
+          }),
+        );
+
+      const { signature } = await tx.sendAndConfirm(umi, {
+        confirm: { commitment: 'finalized' },
+      });
+
+      this.logger.log(`NFT minted successfully! Transaction: ${signature}`);
+
+      // 6. ✅ Mark redemption code as used with ALL required fields
+      const updatedCode = await this.markCodeAsUsed(
+        code.toUpperCase(),
+        recipientWallet,
+        nftMint.publicKey.toString(),
+        signature.toString(),
+      );
+
+      this.logger.log(
+        `Redemption code marked as used. Code ID: ${updatedCode.id}, Status: ${updatedCode.status}`,
+      );
+
+      return {
+        nftAddress: nftMint.publicKey.toString(),
+        txSignature: signature.toString(),
+        collectionName: redemptionCode.collection.name, // ✅ Return collection info
+      };
+    } catch (error) {
+      this.logger.error(`Failed to redeem and mint: ${error.message}`, error);
+      throw new Error(`Redemption failed: ${error.message}`);
+    }
+  }
+
+  /**
    * Inserts config lines into the candy machine in batches.
    * For POC: Uses same metadata URI for all NFTs
    * TODO: For unique metadata, pass different URIs per NFT
@@ -1387,32 +1480,6 @@ export class InventoryService {
   }
 
   /**
-   * Mark a code as used
-   */
-  async markCodeAsUsed(
-    code: string,
-    userWalletAddress: string,
-    mintedNftAddress: string,
-    transactionSignature: string,
-  ): Promise<RedemptionCode> {
-    const redemptionCode = await this.redemptionCodeRepository.findOne({
-      where: { code, status: RedemptionStatus.UNUSED },
-    });
-
-    if (!redemptionCode) {
-      throw new Error('Invalid or already used redemption code');
-    }
-
-    redemptionCode.status = RedemptionStatus.USED;
-    redemptionCode.userWalletAddress = userWalletAddress;
-    redemptionCode.mintedNftAddress = mintedNftAddress;
-    redemptionCode.transactionSignature = transactionSignature;
-    redemptionCode.redeemedAt = new Date();
-
-    return this.redemptionCodeRepository.save(redemptionCode);
-  }
-
-  /**
    * Validate a redemption code
    */
   async validateCode(code: string): Promise<RedemptionCode | null> {
@@ -1463,6 +1530,40 @@ export class InventoryService {
   async onModuleInit() {
     // Run migration when the service initializes
     await this.migrateExistingCodes();
+  }
+
+  /**
+   * Mark a code as used with all required fields
+   */
+  async markCodeAsUsed(
+    code: string,
+    userWalletAddress: string,
+    mintedNftAddress: string,
+    transactionSignature: string,
+  ): Promise<RedemptionCode> {
+    // Use a transaction to ensure atomicity
+    return await this.redemptionCodeRepository.manager.transaction(
+      async (manager) => {
+        const redemptionCode = await manager.findOne(RedemptionCode, {
+          where: { code, status: RedemptionStatus.UNUSED },
+          relations: ['collection'], // ✅ Load the collection relationship
+        });
+
+        if (!redemptionCode) {
+          throw new Error('Invalid or already used redemption code');
+        }
+
+        // ✅ Update all required fields
+        redemptionCode.status = RedemptionStatus.USED; // Status update
+        redemptionCode.userWalletAddress = userWalletAddress; // User wallet
+        redemptionCode.mintedNftAddress = mintedNftAddress; // NFT address
+        redemptionCode.transactionSignature = transactionSignature; // TX signature
+        redemptionCode.redeemedAt = new Date(); // Timestamp
+
+        // ✅ Save and return updated entity
+        return await manager.save(RedemptionCode, redemptionCode);
+      },
+    );
   }
 
   // TODO: Create mint function to mint from candy machine - QR handled on frontend
