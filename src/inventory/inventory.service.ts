@@ -14,9 +14,10 @@ import {
   createNft,
 } from '@metaplex-foundation/mpl-token-metadata';
 import {
-  create,
   addConfigLines,
   mintFromCandyMachineV2,
+  mplCandyMachine,
+  createCandyMachineV2,
 } from '@metaplex-foundation/mpl-candy-machine';
 import {
   KeypairSigner,
@@ -96,6 +97,7 @@ export class InventoryService {
     private collectionMetadataRepository: Repository<CollectionMetadata>,
   ) {
     this.umi = createUmi(process.env.RPC_ENDPOINT);
+    this.umi.use(mplCandyMachine());
     this.umi.use(mplTokenMetadata());
   }
 
@@ -108,6 +110,7 @@ export class InventoryService {
    */
   private generateUmi(signer: KeypairSigner): Umi {
     const umi = createUmi(process.env.RPC_ENDPOINT);
+    umi.use(mplCandyMachine());
     umi.use(mplTokenMetadata());
     umi.use(signerIdentity(signer));
     return umi;
@@ -1162,7 +1165,7 @@ export class InventoryService {
       Collection Description: ${dto.collectionDescription}`);
 
       // Create the candy machine with default configurations
-      const builder = await create(umi, {
+      const builder = await createCandyMachineV2(umi, {
         candyMachine,
         collectionMint: collectionMint.publicKey,
         collectionUpdateAuthority: authority,
@@ -1280,6 +1283,16 @@ export class InventoryService {
       const nftMint = generateSigner(umi);
       const recipientPublicKey = publicKey(recipientWallet);
 
+      console.log(
+        'Candy Machine Authority:',
+        candyMachineAccount.authority.toString(),
+      );
+      console.log(
+        'Candy Machine Mint Authority:',
+        candyMachineAccount.mintAuthority.toString(),
+      );
+      console.log('Your Server Wallet:', adminSigner.publicKey.toString());
+
       this.logger.log(
         `Minting NFT with address: ${nftMint.publicKey.toString()}`,
       );
@@ -1290,11 +1303,11 @@ export class InventoryService {
         .add(
           mintFromCandyMachineV2(umi, {
             candyMachine: candyMachineAccount.publicKey,
-            mintAuthority: umi.identity, // server wallet
+            mintAuthority: adminSigner, // server wallet
             nftOwner: recipientPublicKey, // User gets the NFT
             nftMint,
             collectionMint: candyMachineAccount.collectionMint,
-            collectionUpdateAuthority: candyMachineAccount.authority,
+            collectionUpdateAuthority: candyMachineAccount.authority, // server wallet
           }),
         );
 
