@@ -1106,7 +1106,7 @@ export class InventoryService {
           collectionMint.publicKey
         }, and symbol: ${dto.collectionName.replace(/\s+/g, '').slice(0, 10)}`,
       );
-      await new Promise((resolve) => setTimeout(resolve, 10000));
+      await new Promise((resolve) => setTimeout(resolve, 20000));
 
       // TODO: For unique metadata, create individual metadata files here
       // Upload base NFT metadata for POC (same for all NFTs)
@@ -1191,7 +1191,7 @@ export class InventoryService {
       await builder.sendAndConfirm(umi);
 
       this.logger.log(`Candy machine created: ${candyMachine.publicKey}`);
-      await new Promise((resolve) => setTimeout(resolve, 15000));
+      await new Promise((resolve) => setTimeout(resolve, 20000));
 
       // Insert config lines with same metadata for all (POC)
       await this.insertCandyMachineConfigLines(
