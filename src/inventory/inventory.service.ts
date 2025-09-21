@@ -1494,6 +1494,14 @@ export class InventoryService {
     });
   }
 
+  async getCollectionByCode(code: string): Promise<CollectionMetadata | null> {
+    const redemptionCode = await this.redemptionCodeRepository.findOne({
+      where: { code },
+      relations: ['collection'],
+    });
+    return redemptionCode?.collection || null;
+  }
+
   /**
    * Migrate existing redemption codes to link with a default collection
    */

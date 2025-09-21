@@ -29,6 +29,7 @@ import {
 } from './dto/redeem-mint.dto';
 import { HttpStatus } from '@nestjs/common';
 import { RedemptionCode } from './entities/redemption-code.entity';
+import { ValidationResponseDto } from './dto/validation-response.dto';
 
 @ApiTags('inventory')
 @Controller('inventory')
@@ -110,6 +111,47 @@ export class InventoryController {
     @Param('candyMachineAddress') candyMachineAddress: string,
   ): Promise<RedemptionCode[]> {
     return this.inventoryService.getUnusedCodes(candyMachineAddress);
+  }
+
+  @Get('valid-codes/:code')
+  @ApiOperation({
+    summary: 'Validate a redemption code',
+    description:
+      'Check if a redemption code is valid and return collection details.',
+  })
+  @ApiParam({
+    name: 'code',
+    description: 'The redemption code to validate',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'The validation response',
+    type: ValidationResponseDto,
+  })
+  async validateCode(
+    @Param('code') code: string,
+  ): Promise<ValidationResponseDto> {
+    try {
+      const redemptionCode = await this.inventoryService.validateCode(code);
+      if (!redemptionCode) {
+        return {
+          valid: false,
+          message: 'Invalid redemption code',
+        };
+      }
+
+      // Get collection details
+      const collection = await this.inventoryService.getCollectionByCode(code);
+
+      return {
+        valid: true,
+        collectionName: collection?.name,
+        message: 'Valid redemption code',
+      };
+    } catch (error) {
+      this.logger.error('Error validating code:', error);
+      throw error;
+    }
   }
 
   /*---------- Used to create a wallet and generate a new instance of OEM with the given signer-------- */
