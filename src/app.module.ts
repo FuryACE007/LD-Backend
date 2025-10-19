@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { InventoryModule } from './inventory/inventory.module';
+import { EscrowModule } from './escrow/escrow.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { validationSchema } from './config/validation.schema';
@@ -24,6 +25,7 @@ import { envConfiguration } from './config/env.config';
     }),
     TypeOrmModule.forFeature([RedemptionCode]),
     InventoryModule,
+    EscrowModule,
   ],
   controllers: [AppController],
   providers: [AppService],
