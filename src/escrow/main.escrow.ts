@@ -1,10 +1,13 @@
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { EscrowAppModule } from './escrow.app.module';
+import { LoggingInterceptor } from '../common/interceptors/logging.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(EscrowAppModule);
   app.enableCors();
+  app.useGlobalInterceptors(new LoggingInterceptor());
+  app.useLogger(['log', 'error', 'warn']);
 
   const config = new DocumentBuilder()
     .setTitle('Escrow API')

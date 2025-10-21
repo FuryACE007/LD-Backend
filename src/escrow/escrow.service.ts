@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Keypair } from '@solana/web3.js';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { keypairIdentity } from '@metaplex-foundation/umi';
@@ -55,6 +55,7 @@ export class EscrowService {
   private umiSigner!: ReturnType<
     typeof this.umi.eddsa.createKeypairFromSecretKey
   >;
+  private readonly logger = new Logger(EscrowService.name);
 
   constructor() {
     this.initializeSigners();
@@ -74,6 +75,9 @@ export class EscrowService {
       createKeyPairSignerFromBytes(keypairFromMnemonic.secretKey).then(
         (signer) => {
           this.solanaKitSigner = signer;
+          this.logger.log(
+            `Signer initialized from PAYER_MNEMONIC owner=${this.solanaKitSigner.address}`,
+          );
         },
       );
       return;
@@ -95,6 +99,9 @@ export class EscrowService {
     // Create Solana Kit TransactionSigner
     createKeyPairSignerFromBytes(keypair.secretKey).then((signer) => {
       this.solanaKitSigner = signer;
+      this.logger.log(
+        `Signer initialized from keypair file=${keypairFile} owner=${this.solanaKitSigner.address}`,
+      );
     });
   }
 
@@ -131,6 +138,7 @@ export class EscrowService {
       .sendTransaction(base64, { encoding: 'base64' })
       .send();
     await this.awaitConfirmation(sig);
+    this.logger.log(`Transaction sent signature=${sig}`);
     return { signature: sig };
   }
 
@@ -138,6 +146,9 @@ export class EscrowService {
     ipltMint: string,
     consumables: { mint: string; maxAmount: string }[],
   ) {
+    this.logger.log(
+      `createJob start owner=${this.solanaKitSigner.address} ipltMint=${ipltMint} consumables=${consumables.length}`,
+    );
     // derive counter PDA
     const PROGRAM_ID = SMART_SUPPLY_ESCROW_PROGRAM_ADDRESS as string;
     const [counterPda] = await this.umi.eddsa.findPda(
@@ -187,19 +198,32 @@ export class EscrowService {
     });
 
     const res = await this.sendInstruction(createJobIx);
+    this.logger.log(
+      `createJob success jobPda=${address(jobPda)} counterPda=${address(counterPda)} signature=${(res as any).signature}`,
+    );
     return { ...res, jobPda: address(jobPda), counterPda: address(counterPda) };
   }
 
   async setMediaHash(jobPdaStr: string, mediaHash: string) {
+    this.logger.log(
+      `setMediaHash start jobPda=${jobPdaStr} mediaHashLen=${mediaHash?.length}`,
+    );
     const setMediaHashIx = await getSetMediaHashInstruction({
       owner: this.solanaKitSigner,
       job: address(jobPdaStr),
       mediaHash,
     });
-    return this.sendInstruction(setMediaHashIx);
+    const res = await this.sendInstruction(setMediaHashIx);
+    this.logger.log(
+      `setMediaHash success jobPda=${jobPdaStr} signature=${(res as any).signature}`,
+    );
+    return res;
   }
 
   async depositIplt(jobPdaStr: string, ipltMintStr: string, amountStr: string) {
+    this.logger.log(
+      `depositIplt start jobPda=${jobPdaStr} ipltMint=${ipltMintStr} amount=${amountStr}`,
+    );
     const jobPda = umiPublicKey(jobPdaStr);
     const ipltMint = umiPublicKey(ipltMintStr);
 
@@ -227,7 +251,11 @@ export class EscrowService {
       systemProgram: address('11111111111111111111111111111111'),
     });
 
-    return this.sendInstruction(depositIpltIx);
+    const res = await this.sendInstruction(depositIpltIx);
+    this.logger.log(
+      `depositIplt success jobPda=${jobPdaStr} signature=${(res as any).signature}`,
+    );
+    return res;
   }
 
   async depositConsumable(
@@ -235,6 +263,9 @@ export class EscrowService {
     consumableMintStr: string,
     amountStr: string,
   ) {
+    this.logger.log(
+      `depositConsumable start jobPda=${jobPdaStr} mint=${consumableMintStr} amount=${amountStr}`,
+    );
     const jobPda = umiPublicKey(jobPdaStr);
     const consumableMint = umiPublicKey(consumableMintStr);
 
@@ -262,15 +293,24 @@ export class EscrowService {
       systemProgram: address('11111111111111111111111111111111'),
     });
 
-    return this.sendInstruction(depositConsumableIx);
+    const res = await this.sendInstruction(depositConsumableIx);
+    this.logger.log(
+      `depositConsumable success jobPda=${jobPdaStr} signature=${(res as any).signature}`,
+    );
+    return res;
   }
 
   async sealJob(jobPdaStr: string) {
+    this.logger.log(`sealJob start jobPda=${jobPdaStr}`);
     const sealIx = await getSealJobInstruction({
       owner: this.solanaKitSigner,
       job: address(jobPdaStr),
     });
-    return this.sendInstruction(sealIx);
+    const res = await this.sendInstruction(sealIx);
+    this.logger.log(
+      `sealJob success jobPda=${jobPdaStr} signature=${(res as any).signature}`,
+    );
+    return res;
   }
 
   async spendLinked(
@@ -280,6 +320,9 @@ export class EscrowService {
     settlementNumber: number,
     consumableBurns: { mint: string; amount: string }[],
   ) {
+    this.logger.log(
+      `spendLinked start jobPda=${jobPdaStr} ipltMint=${ipltMintStr} ipltAmount=${ipltAmountStr} settlementNumber=${settlementNumber} burns=${consumableBurns?.length}`,
+    );
     const jobPda = umiPublicKey(jobPdaStr);
     const ipltMint = umiPublicKey(ipltMintStr);
 
@@ -301,7 +344,6 @@ export class EscrowService {
       })) as ConsumableBurnArgs[],
     });
 
-    // Append remaining accounts for each consumable burn: [mint(RO), escrow token account(RW)]
     const getAccountMeta = getAccountMetaFactory(
       SMART_SUPPLY_ESCROW_PROGRAM_ADDRESS,
       'programId',
@@ -328,31 +370,24 @@ export class EscrowService {
       accounts: [...originalAccounts, ...extraAccounts],
     };
 
-    return this.sendInstruction(augmentedSpendIx);
-  }
-
-  // Recursively serialize BigInt values to strings for JSON responses
-  private serializeForJson(value: any): any {
-    if (typeof value === 'bigint') return value.toString();
-    if (Array.isArray(value)) return value.map((v) => this.serializeForJson(v));
-    if (value && typeof value === 'object') {
-      const out: any = {};
-      for (const [k, v] of Object.entries(value)) {
-        out[k] = this.serializeForJson(v);
-      }
-      return out;
-    }
-    return value;
+    const res = await this.sendInstruction(augmentedSpendIx);
+    this.logger.log(
+      `spendLinked success jobPda=${jobPdaStr} signature=${(res as any).signature}`,
+    );
+    return res;
   }
 
   async fetchJob(jobPdaStr: string) {
+    this.logger.log(`fetchJob start jobPda=${jobPdaStr}`);
     const jobAcc = await fetchJob(this.rpc, address(jobPdaStr), {
       commitment: 'confirmed' as any,
     });
+    this.logger.log(`fetchJob success jobPda=${jobPdaStr}`);
     return this.serializeForJson(jobAcc as any);
   }
 
   async fetchCounter(ownerStr: string) {
+    this.logger.log(`fetchCounter start owner=${ownerStr}`);
     const PROGRAM_ID = SMART_SUPPLY_ESCROW_PROGRAM_ADDRESS as string;
     const [counterPda] = await this.umi.eddsa.findPda(
       umiPublicKey(PROGRAM_ID),
@@ -364,6 +399,7 @@ export class EscrowService {
     const counterAcc = await fetchJobCounter(this.rpc, address(counterPda), {
       commitment: 'confirmed' as any,
     });
+    this.logger.log(`fetchCounter success owner=${ownerStr}`);
     return this.serializeForJson({
       pda: address(counterPda),
       ...counterAcc,
@@ -371,7 +407,9 @@ export class EscrowService {
   }
 
   async fetchSettlement(jobPdaStr: string, settlementNumber: number) {
-    // Settlement fetcher exists in generated clients under accounts/settlement.ts
+    this.logger.log(
+      `fetchSettlement start jobPda=${jobPdaStr} settlementNumber=${settlementNumber}`,
+    );
     const { fetchSettlement } = await import('./generated/accounts/settlement');
     const PROGRAM_ID = SMART_SUPPLY_ESCROW_PROGRAM_ADDRESS as string;
     const jobPda = umiPublicKey(jobPdaStr);
@@ -386,9 +424,26 @@ export class EscrowService {
       address(settlementPda),
       { commitment: 'confirmed' as any },
     );
+    this.logger.log(
+      `fetchSettlement success jobPda=${jobPdaStr} settlementNumber=${settlementNumber}`,
+    );
     return this.serializeForJson({
       pda: address(settlementPda),
       ...settlementAcc,
     } as any);
+  }
+
+  // Recursively serialize BigInt values to strings for JSON responses
+  private serializeForJson(value: any): any {
+    if (typeof value === 'bigint') return value.toString();
+    if (Array.isArray(value)) return value.map((v) => this.serializeForJson(v));
+    if (value && typeof value === 'object') {
+      const out: any = {};
+      for (const [k, v] of Object.entries(value)) {
+        out[k] = this.serializeForJson(v);
+      }
+      return out;
+    }
+    return value;
   }
 }
