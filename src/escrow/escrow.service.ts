@@ -41,6 +41,7 @@ import {
 } from '@metaplex-foundation/umi';
 import { homedir } from 'os';
 import { readFileSync } from 'fs';
+import { mnemonicToSeedSync } from 'bip39';
 
 @Injectable()
 export class EscrowService {
@@ -60,6 +61,24 @@ export class EscrowService {
   }
 
   private initializeSigners() {
+    const mnemonic = process.env.PAYER_MNEMONIC;
+    if (mnemonic && mnemonic.trim().length > 0) {
+      const seed = mnemonicToSeedSync(mnemonic);
+      const seed32 = new Uint8Array(seed).slice(0, 32);
+      const keypairFromMnemonic = this.umi.eddsa.createKeypairFromSeed(seed32);
+
+      this.umiSigner = keypairFromMnemonic;
+      this.umi.use(keypairIdentity(this.umiSigner));
+      this.umi.use(mplToolbox());
+
+      createKeyPairSignerFromBytes(keypairFromMnemonic.secretKey).then(
+        (signer) => {
+          this.solanaKitSigner = signer;
+        },
+      );
+      return;
+    }
+
     const keypairFile =
       process.env.SOLANA_KEYPAIR_PATH || homedir() + '/.config/solana/id.json';
     const keypairString = readFileSync(keypairFile, 'utf-8');
@@ -312,11 +331,25 @@ export class EscrowService {
     return this.sendInstruction(augmentedSpendIx);
   }
 
+  // Recursively serialize BigInt values to strings for JSON responses
+  private serializeForJson(value: any): any {
+    if (typeof value === 'bigint') return value.toString();
+    if (Array.isArray(value)) return value.map((v) => this.serializeForJson(v));
+    if (value && typeof value === 'object') {
+      const out: any = {};
+      for (const [k, v] of Object.entries(value)) {
+        out[k] = this.serializeForJson(v);
+      }
+      return out;
+    }
+    return value;
+  }
+
   async fetchJob(jobPdaStr: string) {
     const jobAcc = await fetchJob(this.rpc, address(jobPdaStr), {
       commitment: 'confirmed' as any,
     });
-    return jobAcc as any;
+    return this.serializeForJson(jobAcc as any);
   }
 
   async fetchCounter(ownerStr: string) {
@@ -331,7 +364,10 @@ export class EscrowService {
     const counterAcc = await fetchJobCounter(this.rpc, address(counterPda), {
       commitment: 'confirmed' as any,
     });
-    return { pda: address(counterPda), ...counterAcc } as any;
+    return this.serializeForJson({
+      pda: address(counterPda),
+      ...counterAcc,
+    } as any);
   }
 
   async fetchSettlement(jobPdaStr: string, settlementNumber: number) {
@@ -350,6 +386,9 @@ export class EscrowService {
       address(settlementPda),
       { commitment: 'confirmed' as any },
     );
-    return { pda: address(settlementPda), ...settlementAcc } as any;
+    return this.serializeForJson({
+      pda: address(settlementPda),
+      ...settlementAcc,
+    } as any);
   }
 }
