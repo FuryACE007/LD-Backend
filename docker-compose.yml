@@ -39,6 +39,23 @@ services:
       postgres:
         condition: service_healthy
 
+  escrow-app:
+    container_name: escrow-service
+    restart: unless-stopped
+    build:
+      context: ./
+    environment:
+      - RPC_ENDPOINT=${RPC_ENDPOINT}
+      - PAYER_MNEMONIC=${PAYER_MNEMONIC}
+      - NODE_ENV=${NODE_ENV}
+      - ESCROW_PORT=${ESCROW_PORT:-3002}
+    command: ["node", "dist/escrow/main.escrow.js"]
+    ports:
+      - '3002:3002'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   caddy:
     image: caddy/caddy:2.2.1-alpine
     container_name: caddy-service
@@ -53,6 +70,7 @@ services:
       - caddy_config:/config
     depends_on:
       - node-app
+      - escrow-app
 
 volumes:
   postgres_data:

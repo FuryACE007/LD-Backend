@@ -10,11 +10,6 @@
     "sourceMap": true,
     "outDir": "./dist",
     "baseUrl": "./",
-    "paths": {
-      "smart-supply-escrow-generated/*": [
-        "../smart-supply-escrow/clients/js-umi/src/generated/*"
-      ]
-    },
     "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": false,

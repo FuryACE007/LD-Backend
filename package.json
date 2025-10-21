@@ -12,6 +12,8 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/lucid-backend/src/main.js",
+    "start:escrow": "ts-node -r tsconfig-paths/register src/escrow/main.escrow.ts",
+    "start:escrow:prod": "node dist/escrow/main.escrow.js",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "test:watch": "jest --watch",

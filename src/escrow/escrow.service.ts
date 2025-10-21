@@ -30,17 +30,11 @@ import {
   getSealJobInstruction,
   getInitJobCounterInstruction,
   getSpendLinkedInstructionAsync,
-} from 'smart-supply-escrow-generated/instructions';
-import {
-  fetchJob,
-  fetchJobCounter,
-} from 'smart-supply-escrow-generated/accounts';
-import { SMART_SUPPLY_ESCROW_PROGRAM_ADDRESS } from 'smart-supply-escrow-generated/programs';
-import { getAccountMetaFactory } from 'smart-supply-escrow-generated/shared';
-import type {
-  ConsumableSpecArgs,
-  ConsumableBurnArgs,
-} from 'smart-supply-escrow-generated/types';
+} from './generated/instructions';
+import { fetchJob, fetchJobCounter } from './generated/accounts';
+import { SMART_SUPPLY_ESCROW_PROGRAM_ADDRESS } from './generated/programs';
+import { getAccountMetaFactory } from './generated/shared';
+import type { ConsumableSpecArgs, ConsumableBurnArgs } from './generated/types';
 import {
   publicKey as umiPublicKey,
   publicKeyBytes,
@@ -342,9 +336,7 @@ export class EscrowService {
 
   async fetchSettlement(jobPdaStr: string, settlementNumber: number) {
     // Settlement fetcher exists in generated clients under accounts/settlement.ts
-    const { fetchSettlement } = await import(
-      'smart-supply-escrow-generated/accounts/settlement'
-    );
+    const { fetchSettlement } = await import('./generated/accounts/settlement');
     const PROGRAM_ID = SMART_SUPPLY_ESCROW_PROGRAM_ADDRESS as string;
     const jobPda = umiPublicKey(jobPdaStr);
     const numLe = Buffer.alloc(4);
