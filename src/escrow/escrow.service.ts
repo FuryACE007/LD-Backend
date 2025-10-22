@@ -34,11 +34,13 @@ import { fetchJob, fetchJobCounter, getJobDecoder } from './generated/accounts';
 import { SMART_SUPPLY_ESCROW_PROGRAM_ADDRESS } from './generated/programs';
 import { getAccountMetaFactory } from './generated/shared';
 import type { ConsumableSpecArgs, ConsumableBurnArgs } from './generated/types';
+import { JobStatus } from './generated/types';
 import {
   publicKey as umiPublicKey,
   publicKeyBytes,
 } from '@metaplex-foundation/umi';
 import { mnemonicToSeedSync, validateMnemonic } from 'bip39';
+import { getSmartSupplyEscrowErrorMessage } from './generated/errors/smartSupplyEscrow';
 
 @Injectable()
 export class EscrowService {
@@ -105,11 +107,10 @@ export class EscrowService {
       const status = value?.[0];
       if (status?.confirmationStatus === 'finalized') {
         if (status?.err) {
-          await this.fetchAndLogTransactionLogs(signature);
+          const logs = await this.fetchAndLogTransactionLogs(signature);
           const errJson = this.serializeForJson(status.err);
-          throw new BadRequestException(
-            `Transaction failed: ${JSON.stringify(errJson)}`,
-          );
+          const msg = this.formatProgramError(errJson, logs);
+          throw new BadRequestException(msg);
         }
         return;
       }
@@ -118,7 +119,9 @@ export class EscrowService {
     throw new BadRequestException('Transaction confirmation timeout');
   }
 
-  private async fetchAndLogTransactionLogs(signature: Signature) {
+  private async fetchAndLogTransactionLogs(
+    signature: Signature,
+  ): Promise<string[] | undefined> {
     try {
       const tx = await this.rpc
         .getTransaction(signature, {
@@ -134,11 +137,35 @@ export class EscrowService {
       } else {
         this.logger.warn(`No on-chain logs available for ${signature}`);
       }
+      return logs;
     } catch (e: any) {
       this.logger.warn(
         `Failed to fetch transaction logs for ${signature}: ${e?.message ?? e}`,
       );
+      return undefined;
     }
+  }
+
+  private extractCustomErrorHex(logs?: string[]): string | undefined {
+    if (!logs) return undefined;
+    for (const line of logs) {
+      const m = line.match(/custom program error:\s*0x([0-9a-fA-F]+)/);
+      if (m) return m[1];
+    }
+    return undefined;
+  }
+
+  private formatProgramError(err: any, logs?: string[]): string {
+    const base = `Transaction failed: ${JSON.stringify(this.serializeForJson(err))}`;
+    const hex = this.extractCustomErrorHex(logs);
+    if (hex) {
+      const code = parseInt(hex, 16) as any;
+      try {
+        const friendly = getSmartSupplyEscrowErrorMessage(code as any);
+        if (friendly) return `${friendly} (${base})`;
+      } catch {}
+    }
+    return base;
   }
 
   private async sendInstruction(ix: any) {
@@ -164,9 +191,8 @@ export class EscrowService {
         this.logger.error(
           `Preflight simulation failed: ${JSON.stringify(simErrJson)}\nLogs:\n${(simLogs || []).join('\n')}`,
         );
-        throw new BadRequestException(
-          `Transaction simulation failed: ${JSON.stringify(simErrJson)}`,
-        );
+        const friendlyMsg = this.formatProgramError(simErrJson, simLogs);
+        throw new BadRequestException(friendlyMsg);
       }
     } catch (e) {
       const msg = (e as any)?.message ?? '';
@@ -256,6 +282,8 @@ export class EscrowService {
     this.logger.log(
       `setMediaHash start jobPda=${jobPdaStr} mediaHashLen=${mediaHash?.length}`,
     );
+    // Block updates once job is sealed
+    await this.ensureJobNotSealed(jobPdaStr);
     const setMediaHashIx = await getSetMediaHashInstruction({
       owner: this.solanaKitSigner,
       job: address(jobPdaStr),
@@ -268,18 +296,67 @@ export class EscrowService {
     return res;
   }
 
+  private async ensureJobNotSealed(jobPdaStr: string) {
+    const accResp = await this.rpc
+      .getAccountInfo(address(jobPdaStr), {
+        encoding: 'base64',
+        commitment: 'confirmed' as any,
+      })
+      .send();
+    const jobAccInfo = (accResp as any)?.value;
+    const jobDataBase64 = jobAccInfo?.data?.[0];
+    if (!jobDataBase64) {
+      throw new BadRequestException('Job account not found or empty');
+    }
+    const jobDecoded = getJobDecoder().decode(
+      new Uint8Array(Buffer.from(jobDataBase64, 'base64')),
+    );
+
+    // Prefer status-based gating: only Created is allowed to mutate pre-seal
+    const rawStatus = (jobDecoded as any)?.jobStatus;
+    let statusNum: number;
+    if (typeof rawStatus === 'number') {
+      statusNum = rawStatus;
+    } else {
+      statusNum = Number(rawStatus);
+    }
+    const isPreSealState = statusNum === JobStatus.Created;
+
+    // Fallback: detect sealedAt being set in various Option representations
+    const sealedAt = (jobDecoded as any)?.sealedAt;
+    let isSealedAtSet = false;
+    if (sealedAt !== null && sealedAt !== undefined) {
+      if (typeof sealedAt === 'bigint' || typeof sealedAt === 'number') {
+        isSealedAtSet = true;
+      } else if (typeof sealedAt === 'object') {
+        const opt = sealedAt as any;
+        // Common shapes: { isSome: true, value }, { some: value }, { value }, { fields: [value] }
+        if (opt?.isSome === true) isSealedAtSet = true;
+        else if (opt?.some !== undefined) isSealedAtSet = true;
+        else if (opt?.value !== undefined) isSealedAtSet = true;
+        else if (Array.isArray(opt?.fields)) {
+          if (opt.fields.length > 0) {
+            isSealedAtSet = true;
+          }
+        }
+      }
+    }
+
+    if (!isPreSealState || isSealedAtSet) {
+      throw new BadRequestException('Job already sealed');
+    }
+    return jobDecoded;
+  }
+
   async depositIplt(jobPdaStr: string, amountStr: string) {
     this.logger.log(
       `depositIplt start jobPda=${jobPdaStr} amount=${amountStr}`,
     );
     const jobPda = umiPublicKey(jobPdaStr);
 
-    // Fetch job to derive IP-LT mint from on-chain state
-    const jobAcc = await fetchJob(this.rpc, address(jobPdaStr), {
-      commitment: 'confirmed' as any,
-    });
-    const ipltMintResolved =
-      (jobAcc as any).data?.ipltMint ?? (jobAcc as any).ipltMint;
+    // Decode job and ensure not sealed
+    const jobDecoded = await this.ensureJobNotSealed(jobPdaStr);
+    const ipltMintResolved = jobDecoded.ipltMint as string;
     if (!ipltMintResolved) {
       throw new BadRequestException('Job account missing ipltMint');
     }
@@ -326,12 +403,9 @@ export class EscrowService {
     );
     const jobPda = umiPublicKey(jobPdaStr);
 
-    // Fetch job to derive consumable mint by index
-    const jobAcc = await fetchJob(this.rpc, address(jobPdaStr), {
-      commitment: 'confirmed' as any,
-    });
-    const consumables =
-      (jobAcc as any).data?.consumables ?? (jobAcc as any).consumables;
+    // Decode job and ensure not sealed
+    const jobDecoded = await this.ensureJobNotSealed(jobPdaStr);
+    const consumables = jobDecoded.consumables as any[];
     if (!Array.isArray(consumables)) {
       throw new BadRequestException('Job account missing consumables');
     }
@@ -369,13 +443,15 @@ export class EscrowService {
 
     const res = await this.sendInstruction(depositConsumableIx);
     this.logger.log(
-      `depositConsumable success jobPda=${jobPdaStr} mint=${consumableMintResolved} signature=${(res as any).signature}`,
+      `depositConsumable success jobPda=${jobPdaStr} signature=${(res as any).signature}`,
     );
     return res;
   }
 
   async sealJob(jobPdaStr: string) {
     this.logger.log(`sealJob start jobPda=${jobPdaStr}`);
+    // Block sealing if already sealed for a clear error
+    await this.ensureJobNotSealed(jobPdaStr);
     const sealIx = await getSealJobInstruction({
       owner: this.solanaKitSigner,
       job: address(jobPdaStr),
