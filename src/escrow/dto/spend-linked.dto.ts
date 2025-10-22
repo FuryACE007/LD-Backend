@@ -1,10 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsArray, IsNumber, IsString } from 'class-validator';
 
-export class ConsumableBurnDto {
-  @ApiProperty({ description: 'Consumable mint address' })
-  @IsString()
-  mint: string;
+export class ConsumableBurnByIndexDto {
+  @ApiProperty({ description: 'Index of consumable in job.consumables' })
+  @IsNumber()
+  index: number;
 
   @ApiProperty({ description: 'Amount to burn' })
   @IsString()
@@ -16,19 +16,11 @@ export class SpendLinkedDto {
   @IsString()
   jobPda: string;
 
-  @ApiProperty({ description: 'IPLT mint address' })
-  @IsString()
-  ipltMint: string;
-
   @ApiProperty({ description: 'Amount of IPLT to spend' })
   @IsString()
   ipltAmount: string;
 
-  @ApiProperty({ description: 'Settlement number for spend' })
-  @IsNumber()
-  settlementNumber: number;
-
-  @ApiProperty({ type: [ConsumableBurnDto] })
+  @ApiProperty({ type: [ConsumableBurnByIndexDto] })
   @IsArray()
-  consumableBurns: ConsumableBurnDto[];
+  consumableBurnsByIndex: ConsumableBurnByIndexDto[];
 }

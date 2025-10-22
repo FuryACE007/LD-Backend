@@ -25,18 +25,14 @@ export class EscrowController {
 
   @Post('deposit-iplt')
   depositIplt(@Body() body: DepositIpltDto) {
-    return this.escrowService.depositIplt(
-      body.jobPda,
-      body.ipltMint,
-      body.amount,
-    );
+    return this.escrowService.depositIplt(body.jobPda, body.amount);
   }
 
   @Post('deposit-consumable')
   depositConsumable(@Body() body: DepositConsumableDto) {
     return this.escrowService.depositConsumable(
       body.jobPda,
-      body.consumableMint,
+      body.consumableIndex,
       body.amount,
     );
   }
@@ -50,10 +46,8 @@ export class EscrowController {
   spendLinked(@Body() body: SpendLinkedDto) {
     return this.escrowService.spendLinked(
       body.jobPda,
-      body.ipltMint,
       body.ipltAmount,
-      body.settlementNumber,
-      body.consumableBurns,
+      body.consumableBurnsByIndex,
     );
   }
 

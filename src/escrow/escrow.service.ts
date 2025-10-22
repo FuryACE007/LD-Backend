@@ -1,5 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Keypair } from '@solana/web3.js';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { keypairIdentity } from '@metaplex-foundation/umi';
 import {
@@ -31,7 +30,7 @@ import {
   getInitJobCounterInstruction,
   getSpendLinkedInstructionAsync,
 } from './generated/instructions';
-import { fetchJob, fetchJobCounter } from './generated/accounts';
+import { fetchJob, fetchJobCounter, getJobDecoder } from './generated/accounts';
 import { SMART_SUPPLY_ESCROW_PROGRAM_ADDRESS } from './generated/programs';
 import { getAccountMetaFactory } from './generated/shared';
 import type { ConsumableSpecArgs, ConsumableBurnArgs } from './generated/types';
@@ -39,31 +38,32 @@ import {
   publicKey as umiPublicKey,
   publicKeyBytes,
 } from '@metaplex-foundation/umi';
-import { homedir } from 'os';
-import { readFileSync } from 'fs';
-import { mnemonicToSeedSync } from 'bip39';
+import { mnemonicToSeedSync, validateMnemonic } from 'bip39';
 
 @Injectable()
 export class EscrowService {
   private readonly rpc = createSolanaRpc(
-    process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com',
+    process.env.RPC_ENDPOINT || 'https://api.devnet.solana.com',
   );
   private umi = createUmi(
-    process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com',
+    process.env.RPC_ENDPOINT || 'https://api.devnet.solana.com',
   );
   private solanaKitSigner!: TransactionSigner<string>;
   private umiSigner!: ReturnType<
     typeof this.umi.eddsa.createKeypairFromSecretKey
   >;
   private readonly logger = new Logger(EscrowService.name);
+  private signerSource: 'mnemonic' | 'file' = 'file';
 
   constructor() {
+    // Ensure signer is initialized synchronously where possible
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises
     this.initializeSigners();
   }
 
-  private initializeSigners() {
-    const mnemonic = process.env.PAYER_MNEMONIC;
-    if (mnemonic && mnemonic.trim().length > 0) {
+  private async initializeSigners() {
+    const mnemonic = process.env.PAYER_MNEMONIC?.trim();
+    if (mnemonic && validateMnemonic(mnemonic)) {
       const seed = mnemonicToSeedSync(mnemonic);
       const seed32 = new Uint8Array(seed).slice(0, 32);
       const keypairFromMnemonic = this.umi.eddsa.createKeypairFromSeed(seed32);
@@ -72,37 +72,25 @@ export class EscrowService {
       this.umi.use(keypairIdentity(this.umiSigner));
       this.umi.use(mplToolbox());
 
-      createKeyPairSignerFromBytes(keypairFromMnemonic.secretKey).then(
-        (signer) => {
-          this.solanaKitSigner = signer;
-          this.logger.log(
-            `Signer initialized from PAYER_MNEMONIC owner=${this.solanaKitSigner.address}`,
-          );
-        },
+      const signer = await createKeyPairSignerFromBytes(
+        keypairFromMnemonic.secretKey,
+      );
+      this.solanaKitSigner = signer;
+      this.signerSource = 'mnemonic';
+      this.logger.log(
+        `Signer initialized [mnemonic] owner=${this.solanaKitSigner.address}`,
       );
       return;
+    } else if (mnemonic) {
+      throw new Error(
+        'PAYER_MNEMONIC is invalid. Provide a valid BIP-39 phrase.',
+      );
     }
 
-    const keypairFile =
-      process.env.SOLANA_KEYPAIR_PATH || homedir() + '/.config/solana/id.json';
-    const keypairString = readFileSync(keypairFile, 'utf-8');
-    const keypair = Keypair.fromSecretKey(
-      Buffer.from(JSON.parse(keypairString)),
-    );
-
-    this.umiSigner = this.umi.eddsa.createKeypairFromSecretKey(
-      keypair.secretKey,
-    );
-    this.umi.use(keypairIdentity(this.umiSigner));
-    this.umi.use(mplToolbox());
-
-    // Create Solana Kit TransactionSigner
-    createKeyPairSignerFromBytes(keypair.secretKey).then((signer) => {
-      this.solanaKitSigner = signer;
-      this.logger.log(
-        `Signer initialized from keypair file=${keypairFile} owner=${this.solanaKitSigner.address}`,
-      );
-    });
+    // Strict mode: require mnemonic, no file fallback
+    if (!mnemonic) {
+      throw new Error('PAYER_MNEMONIC is required but not set.');
+    }
   }
 
   private async getFreshBlockhash() {
@@ -113,14 +101,43 @@ export class EscrowService {
   private async awaitConfirmation(signature: Signature, timeoutMs = 20000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      const { value: statuses } = await this.rpc
-        .getSignatureStatuses([signature])
+      const { value } = await this.rpc.getSignatureStatuses([signature]).send();
+      const status = value?.[0];
+      if (status?.confirmationStatus === 'finalized') {
+        if (status?.err) {
+          await this.fetchAndLogTransactionLogs(signature);
+          const errJson = this.serializeForJson(status.err);
+          throw new BadRequestException(
+            `Transaction failed: ${JSON.stringify(errJson)}`,
+          );
+        }
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    throw new BadRequestException('Transaction confirmation timeout');
+  }
+
+  private async fetchAndLogTransactionLogs(signature: Signature) {
+    try {
+      const tx = await this.rpc
+        .getTransaction(signature, {
+          encoding: 'jsonParsed',
+          maxSupportedTransactionVersion: 0,
+        })
         .send();
-      const status = statuses?.[0];
-      if (status?.err)
-        throw new Error(`Transaction failed: ${JSON.stringify(status.err)}`);
-      if (status?.confirmationStatus === 'finalized') return;
-      await new Promise((r) => setTimeout(r, 500));
+      const logs: string[] | undefined = (tx as any)?.meta?.logMessages;
+      if (logs && logs.length) {
+        this.logger.error(
+          `On-chain logs for ${signature}:\n${logs.join('\n')}`,
+        );
+      } else {
+        this.logger.warn(`No on-chain logs available for ${signature}`);
+      }
+    } catch (e: any) {
+      this.logger.warn(
+        `Failed to fetch transaction logs for ${signature}: ${e?.message ?? e}`,
+      );
     }
   }
 
@@ -134,8 +151,39 @@ export class EscrowService {
     );
     const signed = await signTransactionMessageWithSigners(message);
     const base64 = getBase64EncodedWireTransaction(signed);
+
+    // Preflight: simulate to capture logs for easier debugging
+    try {
+      const sim = await this.rpc
+        .simulateTransaction(base64, { encoding: 'base64' })
+        .send();
+      const simErr = (sim as any)?.value?.err;
+      const simLogs = (sim as any)?.value?.logs;
+      if (simErr) {
+        const simErrJson = this.serializeForJson(simErr);
+        this.logger.error(
+          `Preflight simulation failed: ${JSON.stringify(simErrJson)}\nLogs:\n${(simLogs || []).join('\n')}`,
+        );
+        throw new BadRequestException(
+          `Transaction simulation failed: ${JSON.stringify(simErrJson)}`,
+        );
+      }
+    } catch (e) {
+      const msg = (e as any)?.message ?? '';
+      // If client-side serialization blocks simulate, warn and proceed to send
+      if (msg.includes('serialize a BigInt')) {
+        this.logger.warn(
+          `simulateTransaction unavailable or failed softly: ${msg}`,
+        );
+      } else {
+        // Treat transformer-thrown simulation errors as preflight failures
+        this.logger.error(`simulateTransaction threw: ${msg}`);
+        throw new BadRequestException(`Transaction simulation failed: ${msg}`);
+      }
+    }
+
     const sig = await this.rpc
-      .sendTransaction(base64, { encoding: 'base64' })
+      .sendTransaction(base64, { encoding: 'base64', skipPreflight: true })
       .send();
     await this.awaitConfirmation(sig);
     this.logger.log(`Transaction sent signature=${sig}`);
@@ -165,7 +213,7 @@ export class EscrowService {
       const counterAcc = await fetchJobCounter(this.rpc, address(counterPda));
       counterNextSeed =
         (counterAcc as any).data?.nextSeed ?? (counterAcc as any).nextSeed ?? 0;
-    } catch (_) {
+    } catch {
       const initCounterIx = await getInitJobCounterInstruction({
         owner: this.solanaKitSigner,
         counter: address(counterPda),
@@ -220,12 +268,22 @@ export class EscrowService {
     return res;
   }
 
-  async depositIplt(jobPdaStr: string, ipltMintStr: string, amountStr: string) {
+  async depositIplt(jobPdaStr: string, amountStr: string) {
     this.logger.log(
-      `depositIplt start jobPda=${jobPdaStr} ipltMint=${ipltMintStr} amount=${amountStr}`,
+      `depositIplt start jobPda=${jobPdaStr} amount=${amountStr}`,
     );
     const jobPda = umiPublicKey(jobPdaStr);
-    const ipltMint = umiPublicKey(ipltMintStr);
+
+    // Fetch job to derive IP-LT mint from on-chain state
+    const jobAcc = await fetchJob(this.rpc, address(jobPdaStr), {
+      commitment: 'confirmed' as any,
+    });
+    const ipltMintResolved =
+      (jobAcc as any).data?.ipltMint ?? (jobAcc as any).ipltMint;
+    if (!ipltMintResolved) {
+      throw new BadRequestException('Job account missing ipltMint');
+    }
+    const ipltMint = umiPublicKey(ipltMintResolved as string);
 
     const userIpltAccount = findAssociatedTokenPda(this.umi, {
       mint: ipltMint,
@@ -242,7 +300,7 @@ export class EscrowService {
       job: address(jobPdaStr),
       userIpltAccount: address(userIpltAccount),
       escrowIpltAccount: address(escrowIpltAccount),
-      ipltMint: address(ipltMintStr),
+      ipltMint: address(ipltMintResolved as string),
       amount: BigInt(amountStr),
       tokenProgram: address('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'),
       associatedTokenProgram: address(
@@ -260,14 +318,30 @@ export class EscrowService {
 
   async depositConsumable(
     jobPdaStr: string,
-    consumableMintStr: string,
+    consumableIndex: number,
     amountStr: string,
   ) {
     this.logger.log(
-      `depositConsumable start jobPda=${jobPdaStr} mint=${consumableMintStr} amount=${amountStr}`,
+      `depositConsumable start jobPda=${jobPdaStr} index=${consumableIndex} amount=${amountStr}`,
     );
     const jobPda = umiPublicKey(jobPdaStr);
-    const consumableMint = umiPublicKey(consumableMintStr);
+
+    // Fetch job to derive consumable mint by index
+    const jobAcc = await fetchJob(this.rpc, address(jobPdaStr), {
+      commitment: 'confirmed' as any,
+    });
+    const consumables =
+      (jobAcc as any).data?.consumables ?? (jobAcc as any).consumables;
+    if (!Array.isArray(consumables)) {
+      throw new BadRequestException('Job account missing consumables');
+    }
+    if (consumableIndex < 0 || consumableIndex >= consumables.length) {
+      throw new BadRequestException(
+        `Invalid consumableIndex ${consumableIndex}, available range 0..${consumables.length - 1}`,
+      );
+    }
+    const consumableMintResolved = consumables[consumableIndex].mint as string;
+    const consumableMint = umiPublicKey(consumableMintResolved);
 
     const userConsumableAccount = findAssociatedTokenPda(this.umi, {
       mint: consumableMint,
@@ -282,7 +356,7 @@ export class EscrowService {
     const depositConsumableIx = await getDepositConsumableInstruction({
       owner: this.solanaKitSigner,
       job: address(jobPdaStr),
-      consumableMint: address(consumableMintStr),
+      consumableMint: address(consumableMintResolved),
       userConsumableAccount: address(userConsumableAccount),
       escrowConsumableAccount: address(escrowConsumableAccount),
       amount: BigInt(amountStr),
@@ -295,7 +369,7 @@ export class EscrowService {
 
     const res = await this.sendInstruction(depositConsumableIx);
     this.logger.log(
-      `depositConsumable success jobPda=${jobPdaStr} signature=${(res as any).signature}`,
+      `depositConsumable success jobPda=${jobPdaStr} mint=${consumableMintResolved} signature=${(res as any).signature}`,
     );
     return res;
   }
@@ -315,33 +389,116 @@ export class EscrowService {
 
   async spendLinked(
     jobPdaStr: string,
-    ipltMintStr: string,
     ipltAmountStr: string,
-    settlementNumber: number,
-    consumableBurns: { mint: string; amount: string }[],
+    consumableBurnsByIndex: { index: number; amount: string }[],
   ) {
     this.logger.log(
-      `spendLinked start jobPda=${jobPdaStr} ipltMint=${ipltMintStr} ipltAmount=${ipltAmountStr} settlementNumber=${settlementNumber} burns=${consumableBurns?.length}`,
+      `spendLinked start jobPda=${jobPdaStr} ipltAmount=${ipltAmountStr} burns=${consumableBurnsByIndex?.length}`,
     );
     const jobPda = umiPublicKey(jobPdaStr);
-    const ipltMint = umiPublicKey(ipltMintStr);
+
+    // Fetch job to derive IP-LT mint and settlement number from the job and accept index-based consumable burns.
+    const accResp = await this.rpc
+      .getAccountInfo(address(jobPdaStr), {
+        encoding: 'base64',
+        commitment: 'confirmed' as any,
+      })
+      .send();
+    const jobAccInfo = (accResp as any)?.value;
+    const jobDataBase64 = jobAccInfo?.data?.[0];
+    if (!jobDataBase64) {
+      throw new BadRequestException('Job account not found or empty');
+    }
+    const jobDecoded = getJobDecoder().decode(
+      new Uint8Array(Buffer.from(jobDataBase64, 'base64')),
+    );
+    const ipltMintResolved = jobDecoded.ipltMint as string;
+    if (!ipltMintResolved) {
+      throw new BadRequestException('Job account missing ipltMint');
+    }
+    const settlementNumberResolved = jobDecoded.settlementCount as number;
+    if (typeof settlementNumberResolved === 'undefined') {
+      throw new BadRequestException('Job account missing settlementCount');
+    }
+
+    // Guard: IPLT amount must not exceed deposited IPLT
+    const ipltDepositedRaw = jobDecoded.ipltAmount as bigint;
+    const ipltDeposited =
+      typeof ipltDepositedRaw === 'bigint'
+        ? ipltDepositedRaw
+        : BigInt(ipltDepositedRaw ?? 0);
+    const ipltAmountBig = BigInt(ipltAmountStr);
+    if (ipltAmountBig > ipltDeposited) {
+      throw new BadRequestException(
+        `IPLT spend amount ${ipltAmountStr} exceeds deposited ${ipltDeposited.toString()}`,
+      );
+    }
+
+    const ipltMint = umiPublicKey(ipltMintResolved as string);
 
     const escrowIpltAccount = findAssociatedTokenPda(this.umi, {
       mint: ipltMint,
       owner: jobPda,
     })[0];
 
+    // Resolve consumable mints by index from job.consumables
+    const consumables = jobDecoded.consumables as any[];
+    if (!Array.isArray(consumables)) {
+      throw new BadRequestException('Job account missing consumables');
+    }
+
+    // Build deposited map by mint for guard checks
+    const depositedList = jobDecoded.depositedConsumables as any[];
+    const depositedByMint = new Map<string, bigint>();
+    for (const d of depositedList ?? []) {
+      const mintStr = (d?.mint as string) ?? '';
+      let amt: bigint;
+      if (typeof d?.amount === 'bigint') {
+        amt = d.amount as bigint;
+      } else {
+        amt = BigInt(d?.amount ?? 0);
+      }
+      if (mintStr) depositedByMint.set(mintStr, amt);
+    }
+
+    const consumableBurns = consumableBurnsByIndex.map((b) => {
+      const spec = consumables[b.index];
+      if (!spec) {
+        throw new BadRequestException(`Invalid consumableIndex ${b.index}`);
+      }
+      const mintStr = spec.mint as string;
+      const burnAmt = BigInt(b.amount);
+      let maxAmt: bigint;
+      if (typeof spec.maxAmount === 'bigint') {
+        maxAmt = spec.maxAmount as bigint;
+      } else {
+        maxAmt = BigInt(spec.maxAmount ?? 0);
+      }
+      if (burnAmt > maxAmt) {
+        throw new BadRequestException(
+          `Burn amount ${b.amount} exceeds maxAmount ${maxAmt.toString()} for index ${b.index}`,
+        );
+      }
+      const depositedAmt = depositedByMint.get(mintStr) ?? 0n;
+      if (burnAmt > depositedAmt) {
+        throw new BadRequestException(
+          `Burn amount ${b.amount} exceeds deposited ${depositedAmt.toString()} for consumable ${mintStr}`,
+        );
+      }
+      return {
+        mint: address(mintStr),
+        amount: burnAmt,
+      };
+    }) as ConsumableBurnArgs[];
+
     const spendIx = await getSpendLinkedInstructionAsync({
       jobOwner: this.solanaKitSigner,
       job: address(jobPdaStr),
-      ipltMint: address(ipltMintStr),
+      ipltMint: address(ipltMintResolved as string),
       escrowIpltAccount: address(escrowIpltAccount),
-      settlementNumber,
+      settlementNumber: settlementNumberResolved,
       ipltAmount: BigInt(ipltAmountStr),
-      consumableBurns: consumableBurns.map((b) => ({
-        mint: address(b.mint),
-        amount: BigInt(b.amount),
-      })) as ConsumableBurnArgs[],
+      consumableBurns,
     });
 
     const getAccountMeta = getAccountMetaFactory(
@@ -351,23 +508,43 @@ export class EscrowService {
 
     const extraAccounts = [] as any[];
     for (const burn of consumableBurns) {
-      const mintPk = umiPublicKey(burn.mint);
+      const mintPk = umiPublicKey(burn.mint as string);
       const escrowConsumable = findAssociatedTokenPda(this.umi, {
         mint: mintPk,
         owner: jobPda,
       })[0];
+
+      // Ensure escrow consumable ATA exists before sending
+      const escrowConsumableAddr = address(escrowConsumable);
+      const { value: escrowAccInfo } = await this.rpc
+        .getAccountInfo(escrowConsumableAddr, { encoding: 'base64' })
+        .send();
+      if (!escrowAccInfo) {
+        throw new BadRequestException(
+          `Escrow consumable account not found for mint ${burn.mint}. Deposit the consumable first to create its ATA.`,
+        );
+      }
+
       extraAccounts.push(
         getAccountMeta({ value: address(burn.mint), isWritable: true })!,
       );
       extraAccounts.push(
-        getAccountMeta({ value: address(escrowConsumable), isWritable: true })!,
+        getAccountMeta({ value: escrowConsumableAddr, isWritable: true })!,
       );
     }
 
     const originalAccounts = ((spendIx as any).accounts ?? []) as any[];
+    // Ensure IPLT mint is writable for SPL burn semantics
+    const writableIpltMintMeta = getAccountMeta({
+      value: address(ipltMintResolved as string),
+      isWritable: true,
+    })!;
+    const updatedOriginalAccounts = originalAccounts.map((m, i) =>
+      i === 2 ? writableIpltMintMeta : m,
+    );
     const augmentedSpendIx = {
       ...(spendIx as any),
-      accounts: [...originalAccounts, ...extraAccounts],
+      accounts: [...updatedOriginalAccounts, ...extraAccounts],
     };
 
     const res = await this.sendInstruction(augmentedSpendIx);
@@ -445,5 +622,14 @@ export class EscrowService {
       return out;
     }
     return value;
+  }
+
+  // Expose owner info for early logging
+  getOwnerAddress(): string | undefined {
+    return this.solanaKitSigner?.address;
+  }
+
+  getSignerSource(): 'mnemonic' | 'file' {
+    return this.signerSource;
   }
 }

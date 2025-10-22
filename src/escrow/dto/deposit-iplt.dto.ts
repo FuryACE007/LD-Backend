@@ -6,10 +6,6 @@ export class DepositIpltDto {
   @IsString()
   jobPda: string;
 
-  @ApiProperty({ description: 'IPLT mint address' })
-  @IsString()
-  ipltMint: string;
-
   @ApiProperty({ description: 'Amount of IPLT to deposit' })
   @IsString()
   amount: string;
